@@ -1,0 +1,1 @@
+Googleで「Stagehand AI」を検索して、公式サイトにアクセスし、ドキュメントの「Quickstart」ページに「Installation」という見出しがあることを確認する。

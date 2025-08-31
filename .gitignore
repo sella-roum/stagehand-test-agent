@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist
+
+# Environment variables
+.env
+
+# OS-specific
+.DS_Store
+
+# Playwright reports
+playwright-report/
+test-results/
+
+# Workspace for AI agent
+workspace/
