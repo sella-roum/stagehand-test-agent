@@ -40,13 +40,47 @@ export class CommandLineInterface {
     console.log(chalk.bold.blue("--------------------"));
   }
 
+  /**
+   * ユーザーに質問し、空でない入力を受け取るまで繰り返します。
+   * @param question 表示する質問文
+   * @returns ユーザーが入力した文字列
+   */
   async ask(question: string): Promise<string> {
-    return this.rl.question(chalk.cyan(question));
+    let answer = "";
+    while (!answer) {
+      const input = await this.rl.question(chalk.cyan(question));
+      answer = input.trim();
+      if (!answer) {
+        console.log(chalk.yellow("入力が空です。もう一度入力してください。"));
+      }
+    }
+    return answer;
   }
 
+  /**
+   * ユーザーにy/nの確認を求め、有効な入力があるまで繰り返します。
+   * @param question 表示する質問文
+   * @returns ユーザーが 'y' を入力した場合は true, 'n' を入力した場合は false
+   */
   async confirm(question: string): Promise<boolean> {
-    const answer = await this.rl.question(chalk.cyan(`${question} (y/n) `));
-    return answer.toLowerCase() === "y";
+    let isValidInput = false;
+    let result = false;
+    while (!isValidInput) {
+      const answer = await this.rl.question(chalk.cyan(`${question} (y/n) `));
+      const normalizedAnswer = answer.trim().toLowerCase();
+      if (normalizedAnswer === "y" || normalizedAnswer === "yes") {
+        isValidInput = true;
+        result = true;
+      } else if (normalizedAnswer === "n" || normalizedAnswer === "no") {
+        isValidInput = true;
+        result = false;
+      } else {
+        console.log(
+          chalk.yellow("無効な入力です。'y' または 'n' で回答してください。"),
+        );
+      }
+    }
+    return result;
   }
 
   close() {

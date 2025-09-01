@@ -3,7 +3,7 @@
  */
 import { GherkinDocument } from "../types/gherkin.js";
 
-export type ExecutionMode = "autonomous" | "interactive";
+export type ExecutionMode = "autonomous" | "interactive" | "interactive:auto";
 
 export interface TestStepResult {
   step: string; // Gherkinのキーワードとテキストを結合した文字列
@@ -30,5 +30,15 @@ export class ExecutionContext {
 
   setGherkinDocument(doc: GherkinDocument) {
     this.gherkinDocument = doc;
+  }
+
+  /**
+   * 新しいテストシナリオのためにコンテキストをリセットします。
+   * @param newScenario 新しいシナリオのテキスト
+   */
+  resetForNewScenario(newScenario: string) {
+    this.originalScenario = newScenario;
+    this.gherkinDocument = null;
+    this.stepResults = [];
   }
 }

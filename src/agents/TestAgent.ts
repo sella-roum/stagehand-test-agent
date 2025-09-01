@@ -48,14 +48,50 @@ export class TestAgent {
   }
 
   private async handleGiven(step: GherkinStep): Promise<void> {
-    await this.executeWithSelfHealing(step.text, async () => {
-      const urlMatch = step.text.match(/"(https?:\/\/[^"]+)"/);
-      if (urlMatch && urlMatch[1]) {
-        await this.stagehand.page.goto(urlMatch[1]);
-      } else {
-        await this.stagehand.page.act(step.text);
-      }
+    console.log(`  ...前提条件を実行中: ${step.text}`);
+
+    const urlMatch = step.text.match(/https?:\/\/[^\s"`<>()]+/);
+    const expectedUrl = urlMatch ? urlMatch[0] : null;
+
+    // 1. 実行フェーズ
+    if (expectedUrl) {
+      await this.stagehand.page.goto(expectedUrl, { timeout: 30000 });
+    } else {
+      await this.stagehand.page.act(step.text);
+    }
+
+    // 2. 検証フェーズ
+    console.log("  ...前提条件が満たされたか検証中...");
+    await this.stagehand.page.waitForLoadState("domcontentloaded", {
+      timeout: 15000,
     });
+
+    if (expectedUrl) {
+      const currentUrl = this.stagehand.page.url();
+      if (currentUrl === "about:blank" || !currentUrl.startsWith(expectedUrl)) {
+        throw new Error(
+          `前提条件の検証に失敗: URLへの遷移に失敗しました。\n  期待値 (前方一致): ${expectedUrl}\n  実際値: ${currentUrl}`,
+        );
+      }
+      console.log(`  ✅ URL検証成功: ${currentUrl}`);
+    } else {
+      const textMatch = step.text.match(/"([^"]+)"/);
+      const expectedText = textMatch ? textMatch[1] : null; // マッチした部分文字列(グループ1)を抽出
+
+      if (expectedText) {
+        const pageContent = await this.stagehand.page.content();
+        if (!pageContent.includes(expectedText)) {
+          throw new Error(
+            `前提条件の検証に失敗: ページ内にテキスト「${expectedText}」が見つかりません。`,
+          );
+        }
+        console.log(`  ✅ テキスト検証成功: 「${expectedText}」を発見`);
+      } else {
+        console.warn(
+          "検証可能なテキストが'Given'ステップに見つからないため、検証をスキップします。",
+        );
+      }
+    }
   }
 
   private async handleWhen(step: GherkinStep): Promise<void> {
@@ -83,6 +119,7 @@ export class TestAgent {
           `要素が見つかりませんでした: "${plan.observeInstruction}"`,
         );
       }
+      // 配列ではなく、最初の要素(単一のObserveResult)を渡す
       await this.stagehand.page.act(observed[0]);
     });
   }
@@ -101,12 +138,9 @@ export class TestAgent {
         ),
       );
 
-      // --- START: 修正箇所 ---
-      // スキーマをZodObjectでラップする
       const tableSchema = z.object({
         items: z.array(rowSchema),
       });
-      // --- END: 修正箇所 ---
 
       const { items: extractedData } = await this.stagehand.page.extract({
         instruction: `${step.text}の内容をテーブル形式で抽出してください。`,

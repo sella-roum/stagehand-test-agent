@@ -58,10 +58,8 @@ test.describe("Stagehand Test Pilot E2E", () => {
       Googleで「Stagehand AI」を検索して、公式サイトにアクセスし、
       ドキュメントの「Quickstart」ページに「Installation」という見出しがあることを確認する。
     `;
-    // --- START: 修正箇所 ---
     // 未使用の戻り値は変数に代入しない
     await createScenarioFile("google-search.txt", scenario);
-    // --- END: 修正箇所 ---
 
     const context = new ExecutionContext("autonomous", scenario);
     const orchestrator = new TestOrchestrator(stagehand, context, cli);

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
+    "interactive": "tsx src/index.ts --mode=interactive",
+    "interactive:auto": "tsx src/index.ts --mode=interactive:auto",
     "test": "playwright test",
     "build": "tsc",
     "lint": "eslint . --ext .ts",

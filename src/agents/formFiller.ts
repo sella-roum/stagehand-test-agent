@@ -21,9 +21,24 @@ export async function fillFormFromTable(
   console.log("  ...データテーブルに基づいてフォーム入力を開始します。");
 
   for (const row of table) {
-    // 標準的なカラム名 "項目" と "値" を想定
-    const fieldName = row["項目"] || Object.keys(row)[0];
-    const value = row[fieldName];
+    // rowオブジェクトのキーを安全に取得
+    const keys = Object.keys(row) as (keyof typeof row)[];
+    if (keys.length < 2) {
+      console.warn(
+        `テーブルの行 ${JSON.stringify(
+          row,
+        )} はキーと値のペアを持っていません。スキップします。`,
+      );
+      continue;
+    }
+
+    // 最初のキーを「項目」、2番目のキーを「値」のカラムとして扱う
+    // これにより、"項目"と"値"以外のカラム名にも対応可能
+    const fieldNameKey = keys[0];
+    const valueKey = keys[1];
+
+    const fieldName = row[fieldNameKey];
+    const value = row[valueKey];
 
     if (!fieldName || typeof value === "undefined") {
       console.warn(

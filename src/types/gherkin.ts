@@ -3,8 +3,11 @@
  */
 import { z } from "zod";
 
-// データテーブルの行を表すスキーマ
-const tableRowSchema = z.record(z.string());
+// データテーブルの行を表すスキーマを、より具体的な構造に修正
+const tableRowSchema = z.object({
+  項目: z.string().describe("テーブルのヘッダーまたはキー。"),
+  値: z.string().describe("その項目に対応する値。"),
+});
 
 // Gherkinの単一ステップを表すスキーマ
 const stepSchema = z.object({

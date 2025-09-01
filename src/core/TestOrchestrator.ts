@@ -10,6 +10,7 @@ import { getLlm } from "../lib/llm/provider.js";
 import { GherkinStep } from "../types/gherkin.js";
 import fs from "fs/promises";
 import path from "path";
+import chalk from "chalk";
 
 /**
  * @class TestOrchestrator
@@ -59,12 +60,25 @@ export class TestOrchestrator {
       );
       this.context.setGherkinDocument(gherkinDocument);
 
-      this.cli.log("✅ Gherkin形式への変換完了。");
+      this.cli.log(chalk.green("✅ Gherkin形式への変換完了。"));
+      this.cli.log(chalk.bold.blue("--- 正規化されたテスト計画 ---"));
+      this.cli.log(chalk.bold(`Feature: ${gherkinDocument.feature}`));
       this.cli.log(
-        `Feature: ${gherkinDocument.feature}\nScenario: ${gherkinDocument.scenarios[0].title}`,
+        chalk.bold(`Scenario: ${gherkinDocument.scenarios[0].title}`),
       );
+      if (gherkinDocument.background) {
+        gherkinDocument.background.forEach((step) => {
+          this.cli.log(`  ${step.keyword} ${step.text}`);
+        });
+      }
+      gherkinDocument.scenarios[0].steps.forEach((step) => {
+        this.cli.log(`  ${step.keyword} ${step.text}`);
+      });
+      this.cli.log(chalk.bold.blue("--------------------------"));
 
-      if (this.context.mode === "interactive") {
+      // --- START: 修正箇所 ---
+      // interactive または interactive:auto モードの場合、最初の計画承認を行う
+      if (this.context.mode.startsWith("interactive")) {
         const proceed =
           await this.cli.confirm("この計画でテストを実行しますか？");
         if (!proceed) {
@@ -72,26 +86,26 @@ export class TestOrchestrator {
           return;
         }
       }
+      // --- END: 修正箇所 ---
 
-      // Backgroundステップの実行
       if (gherkinDocument.background) {
         for (const step of gherkinDocument.background) {
           await this.executeStep(step);
         }
       }
 
-      // Scenarioステップの実行 (最初のシナリオのみ)
       for (const step of gherkinDocument.scenarios[0].steps) {
         await this.executeStep(step);
       }
-
-      this.cli.logReport(this.context.stepResults);
-      await this.generateReport();
     } catch (error) {
+      console.error(
+        chalk.red(
+          `\n❌ テスト実行中にエラーが発生しました: ${(error as Error).message}`,
+        ),
+      );
+    } finally {
       this.cli.logReport(this.context.stepResults);
       await this.generateReport();
-      // エラーを再スローして、呼び出し元（特にテストランナー）に失敗を通知する
-      throw error;
     }
   }
 
@@ -109,12 +123,15 @@ export class TestOrchestrator {
     let screenshotPath: string | undefined;
 
     try {
+      // --- START: 修正箇所 ---
+      // interactiveモード（確認モード）の時のみ、ステップごとの確認を行う
       if (this.context.mode === "interactive") {
         const proceed = await this.cli.confirm("このステップを実行しますか？");
         if (!proceed) {
           throw new Error("ユーザーがステップ実行をキャンセルしました。");
         }
       }
+      // --- END: 修正箇所 ---
 
       await this.testAgent.executeStep(step);
       status = "pass";
@@ -167,10 +184,9 @@ export class TestOrchestrator {
       content += `- **結果**: ${result.status}\n`;
       content += `- **実行時間**: ${result.durationMs}ms\n`;
       if (result.details) {
-        content += `- **詳細**: \`\`\`\n${result.details}\n\`\`\`\n`;
+        content += `- **詳細**: \n\`\`\`\n${result.details}\n\`\`\`\n`;
       }
       if (result.screenshotPath) {
-        // 相対パスに変換してレポートのポータビリティを向上
         const relativePath = path.relative(reportDir, result.screenshotPath);
         content += `- **証跡**: ![Failure Screenshot](${relativePath})\n`;
       }

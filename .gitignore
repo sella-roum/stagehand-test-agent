@@ -13,6 +13,3 @@ dist
 # Playwright reports
 playwright-report/
 test-results/
-
-# Workspace for AI agent
-workspace/
