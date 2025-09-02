@@ -6,8 +6,8 @@ import { GherkinStep } from "../types/gherkin.js";
 
 /**
  * Gherkinステップに含まれるデータテーブルを解釈し、フォームの各フィールドに対応する値を入力します。
- * @param stagehand - Stagehandのインスタンス。
- * @param table - Gherkinのデータテーブル。各行は { "項目": string, "値": string } 形式を期待します。
+ * @param {Stagehand} stagehand - Stagehandのインスタンス。
+ * @param {GherkinStep["table"]} table - Gherkinのデータテーブル。各行は { "項目": string, "値": string } 形式を期待しますが、他のキーにも対応可能です。
  * @throws {Error} テーブルの形式が不正な場合や、フィールドが見つからない場合にエラーをスローします。
  */
 export async function fillFormFromTable(
@@ -33,7 +33,8 @@ export async function fillFormFromTable(
     }
 
     // 最初のキーを「項目」、2番目のキーを「値」のカラムとして扱う
-    // これにより、"項目"と"値"以外のカラム名にも対応可能
+    // これにより、テーブルのカラム名が "項目"と"値" でなくても、
+    // 1列目をフィールド名、2列目を値として柔軟に解釈できます。
     const fieldNameKey = keys[0];
     const valueKey = keys[1];
 

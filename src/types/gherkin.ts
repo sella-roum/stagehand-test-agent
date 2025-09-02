@@ -3,13 +3,21 @@
  */
 import { z } from "zod";
 
-// データテーブルの行を表すスキーマを、より具体的な構造に修正
+/**
+ * @schema tableRowSchema
+ * @description Gherkinのデータテーブルの単一行を表すスキーマ。
+ * 現状、カラム名は '項目' と '値' に固定されていますが、
+ * `formFiller.ts` の実装はより柔軟なカラム名にも対応可能です。
+ */
 const tableRowSchema = z.object({
   項目: z.string().describe("テーブルのヘッダーまたはキー。"),
   値: z.string().describe("その項目に対応する値。"),
 });
 
-// Gherkinの単一ステップを表すスキーマ
+/**
+ * @schema stepSchema
+ * @description Gherkinの単一ステップ (例: 'When ユーザーがログインボタンをクリックする') を表すスキーマ。
+ */
 const stepSchema = z.object({
   keyword: z
     .string()
@@ -21,13 +29,19 @@ const stepSchema = z.object({
     .describe("ステップに関連付けられたデータテーブル（オプション）。"),
 });
 
-// 単一のシナリオを表すスキーマ
+/**
+ * @schema scenarioSchema
+ * @description Gherkinの単一シナリオ（`Scenario:` ブロック）を表すスキーマ。
+ */
 const scenarioSchema = z.object({
   title: z.string().describe("シナリオのタイトル。"),
   steps: z.array(stepSchema).describe("シナリオを構成するステップの配列。"),
 });
 
-// Gherkinドキュメント全体を表す最上位のスキーマ
+/**
+ * @schema gherkinSchema
+ * @description Gherkinドキュメント全体を表す最上位のスキーマ。
+ */
 export const gherkinSchema = z.object({
   feature: z.string().describe("テスト対象の機能名。"),
   background: z

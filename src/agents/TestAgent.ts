@@ -1,8 +1,8 @@
 /**
- * @file Gherkinシナリオを実行・検証するAIエージェント。
+ * @file Gherkinシナリオを解釈し、実行可能な計画を立案するAIエージェント。
  */
 import { LanguageModel, generateObject } from "ai";
-import { Stagehand } from "@browserbasehq/stagehand";
+import { Stagehand, ObserveResult } from "@browserbasehq/stagehand";
 import { getExecutorPrompt, executorSchema } from "../prompts/executor.js";
 import { getVerifierPrompt, verifierSchema } from "../prompts/verifier.js";
 import {
@@ -13,11 +13,21 @@ import { GherkinStep } from "../types/gherkin.js";
 import { fillFormFromTable } from "./formFiller.js";
 import { z } from "zod";
 
+/**
+ * @class TestAgent
+ * @description Gherkinの各ステップを解釈し、ブラウザ操作の計画立案、検証、自己修復を行う中核エージェント。
+ */
 export class TestAgent {
   private llm: LanguageModel;
   private stagehand: Stagehand;
   private selfHealingLlm: LanguageModel;
 
+  /**
+   * TestAgentのインスタンスを生成します。
+   * @param {LanguageModel} fastLlm - 通常の計画立案に使用する、高速・安価なLLM。
+   * @param {LanguageModel} defaultLlm - 自己修復など、より高度な推論が求められるタスクに使用する高性能なLLM。
+   * @param {Stagehand} stagehand - ブラウザ操作を実行するためのStagehandインスタンス。
+   */
   constructor(
     fastLlm: LanguageModel,
     defaultLlm: LanguageModel,
@@ -28,45 +38,55 @@ export class TestAgent {
     this.stagehand = stagehand;
   }
 
-  async executeStep(step: GherkinStep): Promise<void> {
+  /**
+   * Gherkinステップを受け取り、キーワードに基づいて適切な処理に分岐させます。
+   * @param {GherkinStep} step - 実行するGherkinステップオブジェクト。
+   * @returns {Promise<ObserveResult | boolean | void>}
+   * - 操作ステップ (`When`) の場合: 実行計画 (`ObserveResult`)
+   * - 検証ステップ (`Then`) の場合: 検証結果 (`boolean`)
+   * - URL遷移 (`Given`) など直接実行した場合: `void`
+   */
+  async processStep(
+    step: GherkinStep,
+  ): Promise<ObserveResult | boolean | void> {
     const keyword = step.keyword.toLowerCase();
     if (keyword.includes("given")) {
-      await this.handleGiven(step);
-    } else if (keyword.includes("when") || keyword.includes("and")) {
-      await this.handleWhen(step);
-    } else if (keyword.includes("then")) {
-      const success = await this.handleThen(step);
+      return this.planGivenStep(step);
+    }
+    if (keyword.includes("when") || keyword.includes("and")) {
+      return this.planWhenStep(step);
+    }
+    if (keyword.includes("then")) {
+      const success = await this.verifyThenStep(step);
       if (!success) {
         throw new Error(`検証に失敗しました: "${step.text}"`);
       }
-    } else {
-      console.warn(
-        `不明なキーワード「${step.keyword}」です。'When'として処理を試みます。`,
-      );
-      await this.handleWhen(step);
+      return success;
     }
+    console.warn(
+      `不明なキーワード「${step.keyword}」です。'When'として処理を試みます。`,
+    );
+    return this.planWhenStep(step);
   }
 
-  private async handleGiven(step: GherkinStep): Promise<void> {
-    console.log(`  ...前提条件を実行中: ${step.text}`);
-
+  /**
+   * Givenステップの実行計画を立てます。URL遷移は直接実行し、それ以外は操作計画を返します。
+   * @param {GherkinStep} step - Gherkinステップオブジェクト。
+   * @returns {Promise<ObserveResult | void>} URL遷移がない場合は操作計画(ObserveResult)、URL遷移のみの場合はvoid。
+   * @private
+   */
+  private async planGivenStep(
+    step: GherkinStep,
+  ): Promise<ObserveResult | void> {
     const urlMatch = step.text.match(/https?:\/\/[^\s"`<>()]+/);
     const expectedUrl = urlMatch ? urlMatch[0] : null;
 
-    // 1. 実行フェーズ
     if (expectedUrl) {
+      // URL遷移はエージェントが直接実行する
       await this.stagehand.page.goto(expectedUrl, { timeout: 30000 });
-    } else {
-      await this.stagehand.page.act(step.text);
-    }
-
-    // 2. 検証フェーズ
-    console.log("  ...前提条件が満たされたか検証中...");
-    await this.stagehand.page.waitForLoadState("domcontentloaded", {
-      timeout: 15000,
-    });
-
-    if (expectedUrl) {
+      await this.stagehand.page.waitForLoadState("domcontentloaded", {
+        timeout: 15000,
+      });
       const currentUrl = this.stagehand.page.url();
       if (currentUrl === "about:blank" || !currentUrl.startsWith(expectedUrl)) {
         throw new Error(
@@ -74,28 +94,21 @@ export class TestAgent {
         );
       }
       console.log(`  ✅ URL検証成功: ${currentUrl}`);
+      return; // URL遷移は直接実行したので計画は返さない
     } else {
-      const textMatch = step.text.match(/"([^"]+)"/);
-      const expectedText = textMatch ? textMatch[1] : null; // マッチした部分文字列(グループ1)を抽出
-
-      if (expectedText) {
-        const pageContent = await this.stagehand.page.content();
-        if (!pageContent.includes(expectedText)) {
-          throw new Error(
-            `前提条件の検証に失敗: ページ内にテキスト「${expectedText}」が見つかりません。`,
-          );
-        }
-        console.log(`  ✅ テキスト検証成功: 「${expectedText}」を発見`);
-      } else {
-        console.warn(
-          "検証可能なテキストが'Given'ステップに見つからないため、検証をスキップします。",
-        );
-      }
+      // URL以外のGivenはWhenと同様に操作計画を立てる
+      return this.planWhenStep(step);
     }
   }
 
-  private async handleWhen(step: GherkinStep): Promise<void> {
-    await this.executeWithSelfHealing(step.text, async (currentText) => {
+  /**
+   * Whenステップの操作計画を立てます。
+   * @param {GherkinStep} step - Gherkinステップオブジェクト。
+   * @returns {Promise<ObserveResult>} 実行すべき単一の操作計画(ObserveResult)。
+   * @private
+   */
+  private async planWhenStep(step: GherkinStep): Promise<ObserveResult> {
+    return this.planWithSelfHealing(step, async (currentText) => {
       if (step.table && step.table.length > 0) {
         await fillFormFromTable(this.stagehand, step.table);
       }
@@ -110,24 +123,27 @@ export class TestAgent {
         plan.observeInstruction,
       );
       if (observed.length === 0) {
-        if (step.table) {
-          throw new Error(
-            `データ入力後、要素が見つかりませんでした: "${plan.observeInstruction}"`,
-          );
-        }
         throw new Error(
           `要素が見つかりませんでした: "${plan.observeInstruction}"`,
         );
       }
-      // 配列ではなく、最初の要素(単一のObserveResult)を渡す
-      await this.stagehand.page.act(observed[0]);
+      return observed[0]; // 計画としてObserveResultを返す
     });
   }
 
-  private async handleThen(step: GherkinStep): Promise<boolean> {
+  /**
+   * Thenステップの検証を実行します。
+   * @param {GherkinStep} step - Gherkinステップオブジェクト。
+   * @returns {Promise<boolean>} 検証が成功した場合はtrue。
+   * @private
+   */
+  private async verifyThenStep(step: GherkinStep): Promise<boolean> {
+    // --- データテーブルが存在する場合の検証ロジック ---
     if (step.table && step.table.length > 0) {
       console.log("  ...データテーブルに基づいて検証を開始します。");
       const keys = Object.keys(step.table[0]);
+      // Gherkinのテーブル構造から動的に検証スキーマを生成し、
+      // ページから抽出したデータが期待する形式と一致するかを検証します。
       const rowSchema = z.object(
         keys.reduce(
           (acc, key) => {
@@ -173,6 +189,7 @@ export class TestAgent {
       return true;
     }
 
+    // --- 通常のテキスト検証ロジック ---
     const { object: plan } = await generateObject({
       model: this.llm,
       schema: verifierSchema,
@@ -196,55 +213,57 @@ export class TestAgent {
     }
   }
 
-  private async executeWithSelfHealing(
-    originalStepText: string,
-    operation: (stepText: string) => Promise<void>,
-    maxRetries: number = 2,
-  ) {
+  /**
+   * 自己修復ロジックで計画立案処理をラップします。
+   * 失敗した場合、最大2回まで高性能LLMに代替案を考えさせてリトライします。
+   * @param {GherkinStep} originalStep - 元のGherkinステップ。
+   * @param {(stepText: string) => Promise<ObserveResult>} planner - 計画を立案する関数。
+   * @returns {Promise<ObserveResult>} 成功した操作計画(ObserveResult)。
+   * @private
+   */
+  private async planWithSelfHealing(
+    originalStep: GherkinStep,
+    planner: (stepText: string) => Promise<ObserveResult>,
+  ): Promise<ObserveResult> {
     let lastError: Error | null = null;
-    let currentStep = originalStepText;
+    let currentText = originalStep.text;
 
-    for (let i = 0; i <= maxRetries; i++) {
+    // 自己修復ループ：最大リトライ回数 = 2 (合計3回試行)
+    for (let i = 0; i <= 2; i++) {
       try {
-        await operation(currentStep);
-        if (i > 0) {
-          console.log("✅ 自己修復に成功しました。");
-        }
-        return;
+        const plan = await planner(currentText);
+        if (i > 0) console.log("✅ 自己修復による再計画に成功しました。");
+        return plan;
       } catch (e: any) {
         lastError = e;
-        if (i < maxRetries) {
+        if (i < 2) {
           console.warn(
-            `⚠️ ステップ実行に失敗しました。自己修復を試みます... (${i + 1}/${maxRetries})`,
+            `⚠️ 計画立案に失敗しました。自己修復を試みます... (${i + 1}/2)`,
           );
           if (!lastError) {
-            console.error(
-              "自己修復を試みましたが、エラーオブジェクトが存在しません。",
-            );
+            console.error("エラーオブジェクトが存在しません。");
             continue;
           }
           const pageContent = await this.stagehand.page
             .extract()
             .then((r) => r.page_text || "");
-
-          const { object: plan } = await generateObject({
+          const { object: healingPlan } = await generateObject({
             model: this.selfHealingLlm,
             schema: selfHealingSchema,
             prompt: getSelfHealingPrompt(
-              originalStepText,
+              originalStep.text,
               lastError,
               pageContent,
             ),
           });
-
-          console.log(`   分析: ${plan.causeAnalysis}`);
-          console.log(`   代替案: "${plan.alternativeInstruction}"`);
-          currentStep = plan.alternativeInstruction;
+          console.log(`   分析: ${healingPlan.causeAnalysis}`);
+          console.log(`   代替案: "${healingPlan.alternativeInstruction}"`);
+          currentText = healingPlan.alternativeInstruction;
         }
       }
     }
     throw new Error(
-      `ステップ「${originalStepText}」は${maxRetries}回の自己修復を試みましたが、最終的に失敗しました。最後の失敗理由: ${lastError?.message}`,
+      `ステップ「${originalStep.text}」の計画立案は2回の自己修復を試みましたが、最終的に失敗しました。最後の失敗理由: ${lastError?.message}`,
     );
   }
 }

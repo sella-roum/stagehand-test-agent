@@ -6,16 +6,18 @@ import { LanguageModel } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createGroq } from "@ai-sdk/groq";
 import { createOpenAI } from "@ai-sdk/openai";
-// Cerebrasの公式SDKまたはカスタムクライアントを想定
-// import { createCerebras } from "@ai-sdk/cerebras"; // (仮)
+import { createCerebras } from "@ai-sdk/cerebras";
 
 /**
  * LLMの役割に応じたモデルを取得します。
- * @param role 'default' (高精度) または 'fast' (高速)
- * @returns LanguageModelインスタンス
+ * @param {'default' | 'fast'} role - 'default'は高精度モデル、'fast'は高速モデルを意図します。
+ * @returns {LanguageModel} LanguageModelインスタンス。
+ * @throws {Error} 環境変数が設定されていない場合や、サポートされていないプロバイダが指定された場合にエラーをスローします。
  */
 export function getLlm(role: "default" | "fast"): LanguageModel {
   const provider = process.env.LLM_PROVIDER?.toLowerCase() || "google";
+  // プロバイダ名とロールから、`.env` ファイルに定義された環境変数名を動的に構築します。
+  // 例: provider='google', role='fast' -> 'GOOGLE_FAST_MODEL'
   const modelEnvVar = `${provider.toUpperCase()}_${role.toUpperCase()}_MODEL`;
   const modelName = process.env[modelEnvVar];
 
@@ -43,10 +45,9 @@ export function getLlm(role: "default" | "fast"): LanguageModel {
       })(modelName);
     }
     case "cerebras": {
-      // 注: 現状、Vercel AI SDKに公式のCerebrasプロバイダはありません。
-      // ここではカスタムクライアントを実装する想定のプレースホルダーです。
-      // 実際のプロジェクトではここにCerebrasClientを実装します。
-      throw new Error("Cerebrasはまだサポートされていません。");
+      const apiKey = process.env.CEREBRAS_API_KEY;
+      if (!apiKey) throw new Error("CEREBRAS_API_KEYが設定されていません。");
+      return createCerebras({ apiKey })(modelName);
     }
     default:
       throw new Error(`サポートされていないプロバイダです: ${provider}`);

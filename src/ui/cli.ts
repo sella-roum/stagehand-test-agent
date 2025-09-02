@@ -42,11 +42,12 @@ export class CommandLineInterface {
 
   /**
    * ユーザーに質問し、空でない入力を受け取るまで繰り返します。
-   * @param question 表示する質問文
-   * @returns ユーザーが入力した文字列
+   * @param {string} question - 表示する質問文。
+   * @returns {Promise<string>} ユーザーが入力した文字列。
    */
   async ask(question: string): Promise<string> {
     let answer = "";
+    // ユーザーが空の文字列を入力した場合に、再度入力を促すためのバリデーションループ
     while (!answer) {
       const input = await this.rl.question(chalk.cyan(question));
       answer = input.trim();
@@ -59,12 +60,13 @@ export class CommandLineInterface {
 
   /**
    * ユーザーにy/nの確認を求め、有効な入力があるまで繰り返します。
-   * @param question 表示する質問文
-   * @returns ユーザーが 'y' を入力した場合は true, 'n' を入力した場合は false
+   * @param {string} question - 表示する質問文。
+   * @returns {Promise<boolean>} ユーザーが 'y' を入力した場合は true, 'n' を入力した場合は false。
    */
   async confirm(question: string): Promise<boolean> {
     let isValidInput = false;
     let result = false;
+    // ユーザーが 'y' または 'n' 以外を入力した場合に、再度入力を促すためのバリデーションループ
     while (!isValidInput) {
       const answer = await this.rl.question(chalk.cyan(`${question} (y/n) `));
       const normalizedAnswer = answer.trim().toLowerCase();

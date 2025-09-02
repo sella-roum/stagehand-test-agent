@@ -14,7 +14,8 @@ import chalk from "chalk";
 
 /**
  * @class TestOrchestrator
- * @description テストの実行フロー全体を管理し、AIエージェントとUIを協調させるクラス。
+ * @description テストの実行フロー全体を管理する司令塔。
+ * シナリオ正規化、ステップ実行、結果記録、レポート生成というテスト全体のライフサイクルを管理します。
  */
 export class TestOrchestrator {
   private stagehand: Stagehand;
@@ -47,11 +48,16 @@ export class TestOrchestrator {
 
   /**
    * テスト実行のメインフローを開始します。
-   * シナリオの正規化、ステップごとの実行、レポート生成までを統括します。
+   * 実行フロー：
+   * 1. シナリオをGherkin形式に正規化
+   * 2. (対話モード時) ユーザーに実行計画を承認させる
+   * 3. Gherkinの各ステップを順番に実行
+   * 4. 最終的なテストレポートを生成
    * @returns {Promise<void>}
    */
   async run(): Promise<void> {
     try {
+      // --- 1. シナリオ正規化 ---
       this.cli.log(
         `📝 シナリオを正規化中...\n"${this.context.originalScenario}"`,
       );
@@ -76,8 +82,7 @@ export class TestOrchestrator {
       });
       this.cli.log(chalk.bold.blue("--------------------------"));
 
-      // --- START: 修正箇所 ---
-      // interactive または interactive:auto モードの場合、最初の計画承認を行う
+      // --- 2. 計画承認 (対話モード時) ---
       if (this.context.mode.startsWith("interactive")) {
         const proceed =
           await this.cli.confirm("この計画でテストを実行しますか？");
@@ -86,8 +91,8 @@ export class TestOrchestrator {
           return;
         }
       }
-      // --- END: 修正箇所 ---
 
+      // --- 3. ステップ実行 ---
       if (gherkinDocument.background) {
         for (const step of gherkinDocument.background) {
           await this.executeStep(step);
@@ -98,12 +103,14 @@ export class TestOrchestrator {
         await this.executeStep(step);
       }
     } catch (error) {
+      // メイン処理で発生したエラーを捕捉し、ログに出力
       console.error(
         chalk.red(
           `\n❌ テスト実行中にエラーが発生しました: ${(error as Error).message}`,
         ),
       );
     } finally {
+      // --- 4. レポート生成 (成功・失敗に関わらず必ず実行) ---
       this.cli.logReport(this.context.stepResults);
       await this.generateReport();
     }
@@ -122,23 +129,36 @@ export class TestOrchestrator {
     let details: string | undefined;
     let screenshotPath: string | undefined;
 
+    // このステップで実行されたStagehandの内部コマンドのみを抽出するための開始インデックス
+    const historyStartIndex = this.stagehand.history.length;
+
     try {
-      // --- START: 修正箇所 ---
-      // interactiveモード（確認モード）の時のみ、ステップごとの確認を行う
       if (this.context.mode === "interactive") {
         const proceed = await this.cli.confirm("このステップを実行しますか？");
         if (!proceed) {
           throw new Error("ユーザーがステップ実行をキャンセルしました。");
         }
       }
-      // --- END: 修正箇所 ---
 
-      await this.testAgent.executeStep(step);
+      // TestAgentから計画を受け取り、Orchestratorが実行する
+      const plan = await this.testAgent.processStep(step);
+
+      if (typeof plan === "object" && plan !== null && "method" in plan) {
+        // planがObserveResultの場合、actを実行
+        await this.stagehand.page.act(plan);
+      } else if (typeof plan === "boolean" && !plan) {
+        // planがfalseの場合 (Then句の検証失敗)
+        throw new Error(`検証に失敗しました: "${step.text}"`);
+      }
+      // planがvoid(GivenのURL遷移)またはtrue(Thenの検証成功)の場合は何もしない
+
       status = "pass";
     } catch (e: any) {
       status = "fail";
       details = e.message;
       try {
+        // メインのエラー処理中にスクリーンショット撮影で失敗しても、
+        // テスト全体がクラッシュしないようにするための安全策
         const screenshotDir = path.resolve(process.cwd(), "test-results");
         await fs.mkdir(screenshotDir, { recursive: true });
         screenshotPath = path.join(screenshotDir, `failure-${Date.now()}.png`);
@@ -149,12 +169,20 @@ export class TestOrchestrator {
     }
 
     const durationMs = Date.now() - startTime;
+    const historyEndIndex = this.stagehand.history.length;
+    // このステップで実行されたコマンド履歴を抽出
+    const commands = this.stagehand.history.slice(
+      historyStartIndex,
+      historyEndIndex,
+    );
+
     this.context.addResult({
       step: fullStep,
       status,
       durationMs,
       details,
       screenshotPath,
+      commands,
     });
     this.cli.logStepResult(this.context.stepResults.slice(-1)[0]);
 
@@ -190,6 +218,29 @@ export class TestOrchestrator {
         const relativePath = path.relative(reportDir, result.screenshotPath);
         content += `- **証跡**: ![Failure Screenshot](${relativePath})\n`;
       }
+
+      if (result.commands && result.commands.length > 0) {
+        content += `- **実行コマンド詳細**:\n`;
+        content += "  ```json\n";
+
+        // セキュリティのため、'password'を含む可能性のあるコマンド引数を '[REDACTED]' に置き換える
+        const sanitizedCommands = result.commands.map((cmd) => {
+          const sanitizedCmd: Record<string, any> = { ...cmd };
+          // 'act'コマンドの引数をチェック
+          if (
+            sanitizedCmd.method === "act" &&
+            typeof sanitizedCmd.action === "string" &&
+            sanitizedCmd.action.toLowerCase().includes("password")
+          ) {
+            sanitizedCmd.action = "[REDACTED]";
+          }
+          return sanitizedCmd;
+        });
+
+        content += JSON.stringify(sanitizedCommands, null, 2);
+        content += "\n  ```\n";
+      }
+
       content += "\n";
     }
 

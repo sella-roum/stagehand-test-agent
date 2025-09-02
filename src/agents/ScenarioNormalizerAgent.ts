@@ -8,6 +8,10 @@ import {
   GherkinDocument,
 } from "../prompts/gherkinizer.js";
 
+/**
+ * @class ScenarioNormalizerAgent
+ * @description ユーザーが入力した自由形式のテキストを、構造化されたGherkin JSONに変換する責務を持つエージェント。
+ */
 export class ScenarioNormalizerAgent {
   private llm: LanguageModel;
 
@@ -17,8 +21,8 @@ export class ScenarioNormalizerAgent {
 
   /**
    * 自然言語のテストシナリオをGherkin形式に変換します。
-   * @param scenarioText ユーザーが記述した自由形式のシナリオ
-   * @returns 構造化されたGherkinドキュメントオブジェクト
+   * @param {string} scenarioText - ユーザーによって記述された自由形式のテストシナリオ。
+   * @returns {Promise<GherkinDocument>} 構造化されたGherkin形式のJSONオブジェクト。
    */
   async normalize(scenarioText: string): Promise<GherkinDocument> {
     const prompt = getGherkinizerPrompt(scenarioText);

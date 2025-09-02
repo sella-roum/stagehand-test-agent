@@ -1,5 +1,6 @@
 /**
  * @file AIエージェントのエンドツーエンドテストを定義します。
+ * このファイルは、AIエージェントの動作を実際のブラウザ操作と連携させて検証するe2eテストです。
  */
 import { test, expect } from "@playwright/test";
 import { Stagehand } from "@browserbasehq/stagehand";
@@ -10,7 +11,7 @@ import { CommandLineInterface } from "../src/ui/cli.js";
 import fs from "fs/promises";
 import path from "path";
 
-// AIの応答時間を考慮し、テスト全体のタイムアウトを5分に設定
+// LLM APIの応答が遅延する場合を考慮し、テスト全体のタイムアウトを5分に延長します。
 test.setTimeout(300000);
 
 // テスト用のシナリオファイルを作成するヘルパー関数
@@ -36,7 +37,8 @@ test.describe("Stagehand Test Pilot E2E", () => {
     stagehand = new Stagehand(stagehandConfig);
 
     await stagehand.init();
-    // テスト中はコンソール出力を抑制するため、モックのCLIを使用
+    // テスト実行中にコンソールが冗長な出力で汚れるのを防ぎ、
+    // 自動テストをスムーズに実行するために、CLIインターフェースを空の関数でモックします。
     cli = {
       log: () => {},
       logStepStart: () => {},
