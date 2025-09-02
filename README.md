@@ -32,14 +32,14 @@
 
 ```mermaid
 flowchart TD
-    A[👨‍💻 ユーザーが自然言語でシナリオを入力] --> B{🤖 Scenario Normalizer Agent};
-    B --> |Gherkin形式のJSONに変換| C[📋 構造化されたテスト計画];
-    C --> D{⚙️ Test Agent};
-    D --> |ステップを一つずつ実行| E[🌐 ブラウザ操作 (Observe-Act)];
-    E --> |エラー発生| F[🤔 自己修復];
-    F --> E;
-    E --> |ステップ成功| D;
-    D --> G[📊 テストレポート生成];
+    A[👨‍💻 ユーザーが自然言語でシナリオを入力] --> B{🤖 Scenario Normalizer Agent}
+    B --> |Gherkin形式のJSONに変換| C[📋 構造化されたテスト計画]
+    C --> D{⚙️ Test Agent}
+    D --> |ステップを一つずつ実行| E["🌐 ブラウザ操作 (Observe-Act)"]
+    E --> |エラー発生| F[🤔 自己修復]
+    F --> E
+    E --> |ステップ成功| D
+    D --> G[📊 テストレポート生成]
 ```
 
 1.  **正規化**: `ScenarioNormalizerAgent`が自然言語を解釈し、構造化されたGherkin JSONに変換します。
