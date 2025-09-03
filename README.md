@@ -1,13 +1,13 @@
 # Stagehand Test Agent 🚀
 
 **Stagehand Test Agent**は、AIを活用したテスト実行自動化エージェントです。
-自然言語で書かれた曖昧なテストシナリオを、AIが構造化されたテストケースに変換し、ブラウザ上で自律的に実行・検証します。
+自然言語で書かれたテストシナリオを、AIが構造化されたテストケースに変換し、ブラウザ上で自律的に実行・検証します。
 
 このプロジェクトは、[Stagehand](https://github.com/browserbase/stagehand)フレームワークを基盤とし、非エンジニアでもテストシナリオを自動で実行できるように設計されています。
 
 ## ✨ 主な機能
 
-- **高度なシナリオ解釈**: 「ログインして商品を検索し、フォームに情報を入力して購入する」といった、長く複雑な自然言語の指示を、テスト業界標準の**Gherkin形式 (`Given-When-Then`)** の構造化JSONに自動で変換します。
+- **高度なシナリオ解釈**: 「ログインして商品を検索し、フォームに情報を入力して購入する」といった自然言語の指示を、テスト業界標準の**Gherkin形式 (`Given-When-Then`)** の構造化JSONに自動で変換します。
 
 - **データ駆動テスト**: シナリオ内に記述されたテーブル形式のデータを認識し、フォームへの一括入力や、結果のテーブルデータとの比較検証を実行できます。
 
@@ -31,15 +31,23 @@
 このエージェントは、以下のシンプルな3ステップのワークフローで動作します。
 
 ```mermaid
-flowchart TD
-    A[👨‍💻 ユーザーが自然言語でシナリオを入力] --> B{🤖 Scenario Normalizer Agent}
-    B --> |Gherkin形式のJSONに変換| C[📋 構造化されたテスト計画]
-    C --> D{⚙️ Test Agent}
-    D --> |ステップを一つずつ実行| E["🌐 ブラウザ操作 (Observe-Act)"]
-    E --> |エラー発生| F[🤔 自己修復]
-    F --> E
-    E --> |ステップ成功| D
-    D --> G[📊 テストレポート生成]
+graph LR
+    USER["👨‍💻<br/>ユーザー<br/>自然言語入力"] 
+    NORM["🤖<br/>Scenario<br/>Normalizer<br/>Agent<br/>シナリオ正規化"]
+    PLAN["📋<br/>構造化された<br/>テスト計画<br/>(Gherkin JSON)"]
+    TEST["⚙️<br/>Test Agent<br/>実行制御"]
+    BROWSER["🌐<br/>ブラウザ操作<br/>(Observe-Act)"]
+    REPAIR["🤔<br/>自己修復<br/>エラー対応"]
+    REPORT["📊<br/>テストレポート<br/>生成"]
+
+    USER --> NORM
+    NORM --> PLAN
+    PLAN --> TEST
+    TEST --> BROWSER
+    BROWSER --> |エラー時| REPAIR
+    REPAIR --> BROWSER
+    BROWSER --> |成功時| TEST
+    TEST --> |全ステップ完了| REPORT
 ```
 
 1.  **正規化**: `ScenarioNormalizerAgent`が自然言語を解釈し、構造化されたGherkin JSONに変換します。
