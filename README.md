@@ -201,5 +201,3 @@ Googleで「Stagehand AI」を検索して、公式サイトにアクセスし�
 検証: "Thank you for your order!" というテキストが表示されていること
 
 ```
-
-```
