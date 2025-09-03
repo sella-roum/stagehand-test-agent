@@ -12,7 +12,7 @@ import chalk from "chalk";
 
 async function main() {
   const cli = new CommandLineInterface();
-  cli.log("🚀 Stagehand Test Pilot を起動します...");
+  cli.log("🚀 Stagehand Test Agent を起動します...");
 
   const args = process.argv.slice(2);
   const modeArg = args.find((arg) => arg.startsWith("--mode="));
@@ -61,19 +61,48 @@ async function main() {
       let scenarioText: string;
 
       if (testFilePath && !executionContext) {
+        // 自律モードの初回実行
         scenarioText = await fs.readFile(
           path.resolve(process.cwd(), testFilePath),
           "utf-8",
         );
       } else {
-        scenarioText = await cli.ask(
-          chalk.bold(
-            "\n次のテストシナリオを入力してください (終了するには 'exit' と入力):\n> ",
-          ),
-        );
-        if (scenarioText.toLowerCase() === "exit") {
-          break;
+        // 対話モード、または自律モードの2回目以降のループ
+
+        // headlessモードかどうかでInspectorの案内を動的に変更
+        const isHeadless = stagehandConfig.localBrowserLaunchOptions?.headless;
+        const inspectorPrompt = isHeadless ? "" : ", Inspector: 'inspector'";
+        const promptMessage = `\nテストシナリオを入力してください (終了: 'exit'${inspectorPrompt}):\n> `;
+
+        const userInput = await cli.ask(chalk.bold(promptMessage));
+
+        // 空行または空白のみの入力をチェック
+        if (userInput.trim() === "") {
+          cli.log(
+            "💡 空行です。シナリオ、または 'inspector' | 'exit' を入力してください。",
+          );
+          continue; // ループの先頭に戻り、再入力を促す
         }
+
+        const command = userInput.trim().toLowerCase();
+
+        if (command === "exit") {
+          break; // ループを終了
+        }
+
+        // headlessモードでない場合のみinspectorコマンドを処理
+        if (!isHeadless && command === "inspector") {
+          cli.log(
+            "🕵️ Playwright Inspectorを起動します... Inspectorを閉じて続行してください。",
+          );
+          // stagehand.page.pause() を呼び出してInspectorを起動
+          await stagehand.page.pause();
+          cli.log("✅ Inspectorが終了しました。操作を再開します。");
+          continue; // 次のコマンド入力を待つためにループの先頭に戻る
+        }
+
+        // 'exit'でも'inspector'でもなければ、シナリオとして扱う
+        scenarioText = userInput;
       }
 
       if (executionContext) {

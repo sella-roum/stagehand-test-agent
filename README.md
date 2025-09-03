@@ -1,7 +1,7 @@
 # Stagehand Test Agent 🚀
 
 **Stagehand Test Agent**は、AIを活用したテスト実行自動化エージェントです。
-自然言語で書かれた曖ěなテストシナリオを、AIが構造化されたテストケースに変換し、ブラウザ上で自律的に実行・検証します。
+自然言語で書かれた曖昧なテストシナリオを、AIが構造化されたテストケースに変換し、ブラウザ上で自律的に実行・検証します。
 
 このプロジェクトは、[Stagehand](https://github.com/browserbase/stagehand)フレームワークを基盤とし、非エンジニアでもテストシナリオを自動で実行できるように設計されています。
 
@@ -92,7 +92,7 @@ GOOGLE_FAST_MODEL="gemini-2.5-flash"
 
 ### モード1: 自律モード (CI/CD向け)
 
-ファイルからシナリオを読み込み、確認なしで最後まで実行して終了します。
+ファイルからシナリオを読み込み、ユーザーへの確認なしで最後まで実行して終了します。
 
 ```bash
 npm start tests/scenarios/login.txt
@@ -118,6 +118,57 @@ npm run interactive:auto
 npm start -- --mode=interactive:auto
 ```
 
+### テストコード内での利用（ライブラリとして）
+
+このエージェントはCLIツールとしてだけでなく、そのコア機能をライブラリとして直接インポートし、PlaywrightやJestなどの既存のテストフレームワーク内で利用することも可能です。
+
+`TestOrchestrator`と`ExecutionContext`クラスを使用することで、自然言語シナリオをプログラムで実行し、その結果を検証できます。
+
+**Playwrightテスト内での利用例:**
+
+```typescript
+import { test, expect } from "@playwright/test";
+import { Stagehand } from "@browserbasehq/stagehand";
+import { createStagehandConfig } from "../stagehand.config.js";
+import { ExecutionContext } from "../src/core/ExecutionContext.js";
+import { TestOrchestrator } from "../src/core/TestOrchestrator.js";
+
+test("Eコマースサイトでの購入フローをテストする", async () => {
+  // 1. StagehandとCLI（モック）を初期化
+  const stagehand = new Stagehand(createStagehandConfig());
+  await stagehand.init();
+  const mockCli = {
+    /* ... CLIのメソッドをモック ... */
+  };
+
+  // 2. 実行したい自然言語シナリオを定義
+  const scenario = `
+    ダミーのECサイト "https://www.saucedemo.com" を開き、
+    ユーザー名 "standard_user" とパスワード "secret_sauce" でログインする。
+    "Sauce Labs Backpack" をカートに追加し、カートアイコンに "1" が表示されることを確認する。
+  `;
+
+  // 3. 実行コンテキストとオーケストレーターを生成
+  const context = new ExecutionContext("autonomous", scenario);
+  const orchestrator = new TestOrchestrator(stagehand, context, mockCli);
+
+  // 4. テストを実行し、エラーが発生しないことを確認
+  await expect(orchestrator.run()).resolves.not.toThrow();
+
+  // 5. 実行結果を検証
+  const failedSteps = context.stepResults.filter(
+    (r) => r.status === "fail",
+  ).length;
+  expect(failedSteps).toBe(0);
+  expect(stagehand.page.url()).toContain("/inventory.html");
+
+  // 6. セッションを終了
+  await stagehand.close();
+});
+```
+
+より詳細な実装例については、このプロジェクトのE2Eテストファイル `tests/agents.spec.ts` を参照してください。
+
 ### セッションの終了
 
 対話モードまたは自律的対話モードで、次のシナリオ入力を求められた際に `exit` と入力すると、セッションが安全に終了します。
@@ -128,13 +179,13 @@ npm start -- --mode=interactive:auto
 
 **シンプルな例:**
 
-```
-Googleで「Stagehand AI」を検索して、公式サイトにアクセスし、ドキュメントの「Quickstart」ページに「Installation」という見出しがあることを確認する。
-```
+````
+Googleで「Stagehand AI」を検索して、公式サイトにアクセスし、ドキュメントの「Quickstart」ページに「Installation」という見出しがあることを確認する。```
 
 **データテーブルを含む複雑な例:**
 
-```
+````
+
 フィーチャー: ECサイトでの商品購入
 シナリオ: ログインして商品をカートに追加し、購入手続きで情報を入力する
 
@@ -144,28 +195,11 @@ Googleで「Stagehand AI」を検索して、公式サイトにアクセスし�
 検証: URLに "/inventory.html" が含まれていること
 操作: ユーザーが配送先情報を入力する
 | First Name | Hanako |
-| Last Name  | Tanaka |
+| Last Name | Tanaka |
 | Zip/Postal Code | 123-4567 |
 操作: ユーザーが "Continue" ボタンをクリックする
 検証: "Thank you for your order!" というテキストが表示されていること
+
 ```
 
-## 🧪 プロジェクトのテスト
-
-このプロジェクト自体の品質を保証するために、Playwrightを使用したE2Eテストが含まれています。
-
-```bash
-npm test
-```
-
-## 🤝 貢献
-
-Issueの報告やプルリクエストを歓迎します。開発を始める前に、コードスタイルを統一するため以下のコマンドを実行してください。
-
-```bash
-# コードフォーマットの自動修正
-npm run format
-
-# リンティングエラーのチェック
-npm run lint
 ```
