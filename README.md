@@ -104,8 +104,6 @@ npm start tests/scenarios/login.txt
 
 ```bash
 npm run interactive
-# or
-npm start -- --mode=interactive
 ```
 
 ### モード3: 自律的対話モード (計画レビュー + 自律実行)
@@ -114,8 +112,6 @@ npm start -- --mode=interactive
 
 ```bash
 npm run interactive:auto
-# or
-npm start -- --mode=interactive:auto
 ```
 
 ### テストコード内での利用（ライブラリとして）
@@ -179,13 +175,13 @@ test("Eコマースサイトでの購入フローをテストする", async () =
 
 **シンプルな例:**
 
-````
-Googleで「Stagehand AI」を検索して、公式サイトにアクセスし、ドキュメントの「Quickstart」ページに「Installation」という見出しがあることを確認する。```
+```
+Googleで「Stagehand AI」を検索して、公式サイトにアクセスし、ドキュメントの「Quickstart」ページに「Installation」という見出しがあることを確認する。
+```
 
 **データテーブルを含む複雑な例:**
 
-````
-
+```
 フィーチャー: ECサイトでの商品購入
 シナリオ: ログインして商品をカートに追加し、購入手続きで情報を入力する
 
@@ -199,5 +195,4 @@ Googleで「Stagehand AI」を検索して、公式サイトにアクセスし�
 | Zip/Postal Code | 123-4567 |
 操作: ユーザーが "Continue" ボタンをクリックする
 検証: "Thank you for your order!" というテキストが表示されていること
-
 ```
