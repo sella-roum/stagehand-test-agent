@@ -3,41 +3,34 @@
  */
 import { Stagehand } from "@browserbasehq/stagehand";
 import { CommandLineInterface } from "../ui/cli.js";
-// ToolCallResponseはエクスポートされていないため削除し、Clientのみインポート
-import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { McpTranslatorAgent } from "../agents/McpTranslatorAgent.js";
-import { ScenarioGeneratorAgent } from "../agents/ScenarioGeneratorAgent.js";
 import { RecordedStep } from "../types/recorder.js";
+import { GherkinStep } from "../types/gherkin.js";
+import { TestAgent } from "../agents/TestAgent.js";
+import { InstructionClassifierAgent } from "../agents/InstructionClassifierAgent.js";
+import { ScenarioGeneratorAgent } from "../agents/ScenarioGeneratorAgent.js";
 import { getLlm } from "../lib/llm/provider.js";
 import path from "path";
 import fs from "fs/promises";
 import chalk from "chalk";
 
-// 型ガード関数を改善し、any型を受け取れるようにする
-function isTextResponse(
-  response: any,
-): response is { content: [{ text: string }] } {
-  return (
-    response &&
-    Array.isArray(response.content) &&
-    response.content.length > 0 &&
-    typeof response.content[0].text === "string"
-  );
-}
-
 export class ScenarioRecorder {
   private stagehand: Stagehand;
   private cli: CommandLineInterface;
-  private mcpClient: McpClient | null = null;
   private recordedSteps: RecordedStep[] = [];
-  private translatorAgent: McpTranslatorAgent;
+  private classifierAgent: InstructionClassifierAgent;
+  private testAgent: TestAgent;
   private generatorAgent: ScenarioGeneratorAgent;
 
   constructor(stagehand: Stagehand, cli: CommandLineInterface) {
     this.stagehand = stagehand;
     this.cli = cli;
-    this.translatorAgent = new McpTranslatorAgent(getLlm("fast"));
+    this.classifierAgent = new InstructionClassifierAgent(getLlm("fast"));
+    // TestAgentを初期化して、検証ロジックを再利用できるようにする
+    this.testAgent = new TestAgent(
+      getLlm("fast"),
+      getLlm("default"),
+      this.stagehand,
+    );
     this.generatorAgent = new ScenarioGeneratorAgent(getLlm("default"));
   }
 
@@ -48,9 +41,6 @@ export class ScenarioRecorder {
   public async startRecording(): Promise<string | null> {
     let isRecording = true;
     try {
-      await this.connectToMcp();
-
-      // 記録ループ
       while (isRecording) {
         const instruction = await this.cli.ask(
           chalk.magenta("次の操作指示 > "),
@@ -59,59 +49,22 @@ export class ScenarioRecorder {
 
         switch (command) {
           case "save":
-            isRecording = false; // ループを抜ける
+            isRecording = false;
             return await this.saveScenario();
           case "cancel":
-            isRecording = false; // ループを抜ける
+            isRecording = false;
             return null;
           default:
             await this.recordStep(instruction);
             break;
         }
       }
-      return null; // 通常は到達しない
+      return null;
     } catch (error) {
       this.cli.log(
         chalk.red(`記録中にエラーが発生しました: ${(error as Error).message}`),
       );
       return null;
-    } finally {
-      await this.disconnectFromMcp();
-    }
-  }
-
-  /**
-   * Playwright-MCPサーバーを子プロセスとして起動し、接続します。
-   */
-  private async connectToMcp(): Promise<void> {
-    this.cli.log("  - Playwright-MCPサーバーを起動中...");
-    const command = "npx";
-    const args = [
-      "-y",
-      "@playwright/mcp@latest",
-      "--cdp-endpoint=http://localhost:9222",
-    ];
-
-    const transport = new StdioClientTransport({ command, args });
-
-    this.mcpClient = new McpClient({
-      name: "StagehandRecorder",
-      version: "1.0",
-    });
-    await this.mcpClient.connect(transport);
-    await this.mcpClient.ping();
-    this.cli.log("  - MCPサーバーに接続しました。");
-  }
-
-  /**
-   * MCPサーバーとの接続を解除し、プロセスを終了します。
-   */
-  private async disconnectFromMcp(): Promise<void> {
-    if (this.mcpClient) {
-      // transportがプロセスを管理しているので、clientをcloseすれば十分
-      await this.mcpClient.close();
-      this.mcpClient = null;
-      this.cli.log("  - MCPサーバーを切断しました。");
     }
   }
 
@@ -120,71 +73,78 @@ export class ScenarioRecorder {
    * @param {string} userInstruction - ユーザーからの自然言語の操作指示。
    */
   private async recordStep(userInstruction: string): Promise<void> {
-    if (!this.mcpClient)
-      throw new Error("MCPクライアントが接続されていません。");
+    let success = false;
+    let retryCount = 0;
+    const maxRetries = 1; // ユーザーによる再試行は1回まで
+    let currentInstruction = userInstruction;
 
-    try {
-      // 1. 現在のページ状態を取得
-      const snapshotResponse = await this.mcpClient.callTool({
-        name: "browser_snapshot",
-      });
+    while (!success && retryCount <= maxRetries) {
+      try {
+        // 1. 意図を分類
+        const { intent } =
+          await this.classifierAgent.classify(currentInstruction);
 
-      if (!isTextResponse(snapshotResponse)) {
-        throw new Error("スナップショットの取得に失敗しました。");
-      }
-      const snapshotText = snapshotResponse.content[0].text;
+        if (intent === "action") {
+          // 2a. 操作を実行
+          this.cli.log(chalk.gray(`  - 操作を実行中...`));
+          const result = await this.stagehand.page.act(currentInstruction);
+          if (!result.success) {
+            throw new Error(`操作 '${currentInstruction}' に失敗しました。`);
+          }
+          this.cli.log(chalk.green("  - 操作が成功しました。"));
+          this.recordedSteps.push({
+            type: "action",
+            userInstruction: currentInstruction,
+          });
+        } else {
+          // intent === "assertion"
+          // 2b. 検証を実行
+          this.cli.log(chalk.gray(`  - 検証を実行中...`));
+          // GherkinStepオブジェクトを一時的に作成してTestAgentに渡す
+          const tempStep: GherkinStep = {
+            keyword: "Then",
+            text: currentInstruction,
+          };
+          // TestAgentの検証ロジックを再利用
+          const verificationSuccess =
+            await this.testAgent.processStep(tempStep);
 
-      // 2. LLMにツールコールを翻訳させる
-      const toolCall = await this.translatorAgent.translate(
-        userInstruction,
-        snapshotText,
-      );
-
-      // 3. ツールを実行
-      this.cli.log(
-        chalk.gray(
-          `  - 実行中: ${toolCall.name}(${JSON.stringify(toolCall.arguments)})`,
-        ),
-      );
-      const result = await this.mcpClient.callTool(toolCall);
-
-      if (result.isError) {
-        if (isTextResponse(result)) {
-          throw new Error(
-            `MCPツールの実行に失敗しました: ${result.content[0].text}`,
-          );
+          if (!verificationSuccess) {
+            throw new Error("検証に失敗しました。");
+          }
+          this.cli.log(chalk.green("  - 検証が成功しました。"));
+          this.recordedSteps.push({
+            type: "assertion",
+            userInstruction: currentInstruction,
+          });
         }
-        throw new Error(`MCPツールの実行に失敗しました: 不明なエラー`);
+        success = true; // 成功したらループを抜ける
+      } catch (error) {
+        this.cli.log(
+          chalk.red(`  - ステップに失敗しました: ${(error as Error).message}`),
+        );
+
+        // ユーザーに再試行を促す
+        if (retryCount < maxRetries) {
+          const shouldRetry = await this.cli.confirm(
+            "このステップを再試行しますか？ (指示を修正して再入力できます)",
+          );
+          if (shouldRetry) {
+            currentInstruction = await this.cli.ask(
+              chalk.magenta("修正後の操作指示 > "),
+            );
+            retryCount++;
+            continue; // ループの先頭に戻って再試行
+          }
+        }
+        // 再試行しない、または最大回数に達した場合はループを抜ける
+        break;
       }
-
-      // 4. 成功した操作を履歴に追加
-      this.recordedSteps.push({
-        userInstruction,
-        toolCall,
-        snapshot: this.summarizeSnapshot(snapshotText),
-      });
-      this.cli.log(chalk.green("  - 操作を記録しました。"));
-    } catch (error) {
-      this.cli.log(
-        chalk.red(`  - 操作に失敗しました: ${(error as Error).message}`),
-      );
     }
-  }
 
-  /**
-   * アクセシビリティツリーを要約して、後続のLLMへのコンテキストとして利用します。
-   */
-  private summarizeSnapshot(snapshot: string): string {
-    const titleMatch = snapshot.match(/- Page Title: (.*)/);
-    const title = titleMatch
-      ? `ページタイトル「${titleMatch[1]}」`
-      : "無題のページ";
-    const elements =
-      snapshot.match(/- (button|link|textbox|combobox) ".*"/g) || [];
-    const summary = `${title}には、以下の要素があります: ${elements
-      .map((e) => e.substring(2))
-      .join(", ")}`;
-    return summary.substring(0, 500); // 長さを制限
+    if (!success) {
+      this.cli.log(chalk.yellow("  - このステップはスキップされました。"));
+    }
   }
 
   /**
