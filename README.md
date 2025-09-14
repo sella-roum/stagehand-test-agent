@@ -32,7 +32,7 @@
 
 ```mermaid
 graph LR
-    USER["👨‍💻<br/>ユーザー<br/>自然言語入力"] 
+    USER["👨‍💻<br/>ユーザー<br/>自然言語入力"]
     NORM["🤖<br/>Scenario<br/>Normalizer<br/>Agent<br/>シナリオ正規化"]
     PLAN["📋<br/>構造化された<br/>テスト計画<br/>(Gherkin JSON)"]
     TEST["⚙️<br/>Test Agent<br/>実行制御"]
