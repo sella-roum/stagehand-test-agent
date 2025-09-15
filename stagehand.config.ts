@@ -71,12 +71,14 @@ export function createStagehandConfig(): ConstructorParams {
         height: 720,
       },
       /**
-       * Chrome DevTools Protocol (CDP) のデバッグポートを有効にします。
-       * これにより、Playwright-MCPのような外部ツールが、起動済みのブラウザインスタンスに接続して
-       * 制御することが可能になります。
-       * 注意: 現在ポートは9222に固定されています。将来的に動的なポート割り当てを検討する可能性があります。
+       * Chrome DevTools Protocol (CDP) 用のデバッグポート。
+       * デフォルト9222。環境変数 STAGEHAND_CDP_PORT で上書き可能。
+       * セキュリティ上、loopback に限定します。
        */
-      args: ["--remote-debugging-port=9222"],
+      args: [
+        `--remote-debugging-port=${process.env.STAGEHAND_CDP_PORT ?? "9222"}`,
+        "--remote-debugging-address=127.0.0.1",
+      ],
     },
     // Stagehandライブラリ自体が内部的に使用するLLM。
     // DOM解析など頻繁な呼び出しのために、コストと速度に優れた高速なモデルを指定します。

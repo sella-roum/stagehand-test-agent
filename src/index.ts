@@ -98,16 +98,16 @@ async function main() {
               "⏺️ 記録モードを開始します。操作指示を入力してください。(保存: 'save', 中止: 'cancel')",
             ),
           );
-
-          const recorder = new ScenarioRecorder(stagehand, cli);
-          const scenarioFilePath = await recorder.startRecording();
-
-          if (scenarioFilePath) {
-            cli.log(
-              chalk.green(`✅ シナリオを ${scenarioFilePath} に保存しました。`),
-            );
-          } else {
-            cli.log(chalk.yellow("記録はキャンセルされました。"));
+          try {
+            const recorder = new ScenarioRecorder(stagehand, cli);
+            const scenarioFilePath = await recorder.startRecording();
+            if (scenarioFilePath) {
+              // 成功メッセージはrecorder内で表示される
+            } else {
+              cli.log(chalk.yellow("記録はキャンセルされました。"));
+            }
+          } catch (e: any) {
+            cli.log(chalk.red(`記録モードでエラー: ${e.message ?? e}`));
           }
           continue; // 次のコマンド入力を待つ
         }

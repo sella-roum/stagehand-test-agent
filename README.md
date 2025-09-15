@@ -94,6 +94,15 @@ GOOGLE_DEFAULT_MODEL="gemini-2.5-pro"
 GOOGLE_FAST_MODEL="gemini-2.5-flash"
 
 # ... 他のプロバイダ設定 ...
+
+# (オプション) CDPデバッグポート
+# Playwrightが起動するブラウザのデバッグポートを指定します。
+# デフォルトは 9222 です。
+# STAGEHAND_CDP_PORT=9222
+
+# (オプション) シナリオ記録モードでのユーザー操作の最大リトライ回数
+# デフォルトは 1 です。
+# RECORDER_MAX_RETRIES=1
 ```
 
 ## 🚀 実行方法

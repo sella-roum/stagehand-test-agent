@@ -2,18 +2,21 @@
  * @file ユーザー指示の意図を分類するエージェントが使用するプロンプトとスキーマを定義します。
  */
 import { z } from "zod";
+import { StepIntent } from "../types/recorder.js";
 
 /**
  * @schema instructionClassificationSchema
  * @description ユーザーの指示の意図を分類するためのZodスキーマ。
  */
-export const instructionClassificationSchema = z.object({
-  intent: z
-    .enum(["action", "assertion"])
-    .describe(
-      "ユーザーの指示の意図。'action'はブラウザ上の操作、'assertion'は状態の検証を意味する。",
-    ),
-});
+export const instructionClassificationSchema = z
+  .object({
+    intent: z
+      .enum(StepIntent)
+      .describe(
+        "ユーザーの指示の意図。'action'はブラウザ上の操作、'assertion'は状態の検証を意味する。",
+      ),
+  })
+  .strict();
 
 /**
  * @function getClassifierPrompt
@@ -42,5 +45,8 @@ ${instruction}
 ---
 
 上記の指示の意図を分類し、指定されたJSON形式で出力してください。
+# 出力要件
+- 出力は厳密に1つのJSONオブジェクトのみ。
+- 追加の説明文、コードブロック(\`\`\`)やプレーンテキストは禁止。
 `;
 }

@@ -6,6 +6,7 @@ import {
   getClassifierPrompt,
   instructionClassificationSchema,
 } from "../prompts/classifier.js";
+import { StepIntent } from "../types/recorder.js";
 
 export class InstructionClassifierAgent {
   private llm: LanguageModel;
@@ -17,19 +18,32 @@ export class InstructionClassifierAgent {
   /**
    * ユーザーの指示を「操作」または「検証」に分類します。
    * @param {string} instruction - ユーザーからの自然言語指示。
-   * @returns {Promise<{ intent: "action" | "assertion" }>} 分類結果。
+   * @returns {Promise<{ intent: StepIntent }>} 分類結果。
    */
-  async classify(
-    instruction: string,
-  ): Promise<{ intent: "action" | "assertion" }> {
-    const prompt = getClassifierPrompt(instruction);
+  async classify(instruction: string): Promise<{ intent: StepIntent }> {
+    try {
+      const prompt = getClassifierPrompt(instruction);
 
-    const { object } = await generateObject({
-      model: this.llm,
-      schema: instructionClassificationSchema,
-      prompt,
-    });
+      const { object } = await generateObject({
+        model: this.llm,
+        schema: instructionClassificationSchema,
+        prompt,
+      });
 
-    return object;
+      return object;
+    } catch (error) {
+      console.warn(
+        `⚠️ 意図分類LLMの呼び出しに失敗しました。キーワードベースのフォールバックを使用します。エラー: ${
+          (error as Error).message
+        }`,
+      );
+      // フォールバック: 簡易キーワードで推定
+      const lowerInstruction = instruction.toLowerCase();
+      const isAssertion =
+        /確認|検証|表示されている|含まれている|等しい|一致|含む/.test(
+          lowerInstruction,
+        );
+      return { intent: isAssertion ? "assertion" : "action" };
+    }
   }
 }

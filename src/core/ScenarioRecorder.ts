@@ -40,32 +40,23 @@ export class ScenarioRecorder {
    */
   public async startRecording(): Promise<string | null> {
     let isRecording = true;
-    try {
-      while (isRecording) {
-        const instruction = await this.cli.ask(
-          chalk.magenta("次の操作指示 > "),
-        );
-        const command = instruction.trim().toLowerCase();
+    while (isRecording) {
+      const instruction = await this.cli.ask(chalk.magenta("次の操作指示 > "));
+      const command = instruction.trim().toLowerCase();
 
-        switch (command) {
-          case "save":
-            isRecording = false;
-            return await this.saveScenario();
-          case "cancel":
-            isRecording = false;
-            return null;
-          default:
-            await this.recordStep(instruction);
-            break;
-        }
+      switch (command) {
+        case "save":
+          isRecording = false;
+          return await this.saveScenario();
+        case "cancel":
+          isRecording = false;
+          return null;
+        default:
+          await this.recordStep(instruction);
+          break;
       }
-      return null;
-    } catch (error) {
-      this.cli.log(
-        chalk.red(`記録中にエラーが発生しました: ${(error as Error).message}`),
-      );
-      return null;
     }
+    return null;
   }
 
   /**
@@ -75,7 +66,7 @@ export class ScenarioRecorder {
   private async recordStep(userInstruction: string): Promise<void> {
     let success = false;
     let retryCount = 0;
-    const maxRetries = 1; // ユーザーによる再試行は1回まで
+    const maxRetries = Number(process.env.RECORDER_MAX_RETRIES ?? "1") || 1; // ユーザー再試行回数
     let currentInstruction = userInstruction;
 
     while (!success && retryCount <= maxRetries) {
@@ -88,43 +79,50 @@ export class ScenarioRecorder {
           // 2a. 操作を実行
           this.cli.log(chalk.gray(`  - 操作を実行中...`));
           const result = await this.stagehand.page.act(currentInstruction);
-          if (!result.success) {
+          // 戻り値の型が様々なので、堅牢な成功判定を行う
+          const isSuccess =
+            typeof result === "boolean"
+              ? result
+              : result && typeof result === "object" && "success" in result
+                ? Boolean((result as { success: boolean }).success)
+                : true; // 戻り値が無い/不定なら成功扱い（例外は catch で拾う）
+
+          if (!isSuccess) {
             throw new Error(`操作 '${currentInstruction}' に失敗しました。`);
           }
           this.cli.log(chalk.green("  - 操作が成功しました。"));
           this.recordedSteps.push({
             type: "action",
             userInstruction: currentInstruction,
+            timestamp: Date.now(),
           });
         } else {
           // intent === "assertion"
           // 2b. 検証を実行
           this.cli.log(chalk.gray(`  - 検証を実行中...`));
-          // GherkinStepオブジェクトを一時的に作成してTestAgentに渡す
           const tempStep: GherkinStep = {
             keyword: "Then",
             text: currentInstruction,
           };
-          // TestAgentの検証ロジックを再利用
           const verificationSuccess =
             await this.testAgent.processStep(tempStep);
 
-          if (!verificationSuccess) {
+          if (verificationSuccess !== true) {
             throw new Error("検証に失敗しました。");
           }
           this.cli.log(chalk.green("  - 検証が成功しました。"));
           this.recordedSteps.push({
             type: "assertion",
             userInstruction: currentInstruction,
+            timestamp: Date.now(),
           });
         }
-        success = true; // 成功したらループを抜ける
+        success = true;
       } catch (error) {
         this.cli.log(
           chalk.red(`  - ステップに失敗しました: ${(error as Error).message}`),
         );
 
-        // ユーザーに再試行を促す
         if (retryCount < maxRetries) {
           const shouldRetry = await this.cli.confirm(
             "このステップを再試行しますか？ (指示を修正して再入力できます)",
@@ -134,10 +132,9 @@ export class ScenarioRecorder {
               chalk.magenta("修正後の操作指示 > "),
             );
             retryCount++;
-            continue; // ループの先頭に戻って再試行
+            continue;
           }
         }
-        // 再試行しない、または最大回数に達した場合はループを抜ける
         break;
       }
     }
@@ -159,11 +156,18 @@ export class ScenarioRecorder {
       this.recordedSteps,
     );
 
+    if (!generatedScenario?.trim()) {
+      throw new Error("シナリオ生成に失敗しました（空の出力）。");
+    }
+
     const scenariosDir = path.resolve(process.cwd(), "tests/scenarios");
     await fs.mkdir(scenariosDir, { recursive: true });
-    const filePath = path.join(scenariosDir, `recorded-${Date.now()}.txt`);
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const filePath = path.join(scenariosDir, `recorded-${timestamp}.txt`);
     await fs.writeFile(filePath, generatedScenario);
 
+    this.cli.log(chalk.green(`  - シナリオを保存しました: ${filePath}`));
     return filePath;
   }
 }
