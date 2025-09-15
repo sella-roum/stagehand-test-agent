@@ -78,18 +78,34 @@ export class ScenarioRecorder {
         if (intent === "action") {
           // 2a. 操作を実行
           this.cli.log(chalk.gray(`  - 操作を実行中...`));
-          const result = await this.stagehand.page.act(currentInstruction);
-          // 戻り値の型が様々なので、堅牢な成功判定を行う
-          const isSuccess =
-            typeof result === "boolean"
-              ? result
-              : result && typeof result === "object" && "success" in result
-                ? Boolean((result as { success: boolean }).success)
-                : true; // 戻り値が無い/不定なら成功扱い（例外は catch で拾う）
 
-          if (!isSuccess) {
-            throw new Error(`操作 '${currentInstruction}' に失敗しました。`);
+          // URLナビゲーションか、要素操作かを判定
+          const urlMatch = currentInstruction.match(/https?:\/\/[^\s"`<>()]+/);
+          const url = urlMatch ? urlMatch[0] : null;
+
+          if (url) {
+            // URLへの遷移の場合
+            this.cli.log(chalk.gray(`  - URLに遷移します: ${url}`));
+            await this.stagehand.page.goto(url, {
+              timeout: 30000,
+              waitUntil: "domcontentloaded",
+            });
+          } else {
+            // 要素操作の場合
+            const result = await this.stagehand.page.act(currentInstruction);
+            // 戻り値の型が様々なので、堅牢な成功判定を行う
+            const isSuccess =
+              typeof result === "boolean"
+                ? result
+                : result && typeof result === "object" && "success" in result
+                  ? Boolean((result as { success: boolean }).success)
+                  : true; // 戻り値が無い/不定なら成功扱い（例外は catch で拾う）
+
+            if (!isSuccess) {
+              throw new Error(`操作 '${currentInstruction}' に失敗しました。`);
+            }
           }
+
           this.cli.log(chalk.green("  - 操作が成功しました。"));
           this.recordedSteps.push({
             type: "action",

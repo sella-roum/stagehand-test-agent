@@ -124,6 +124,12 @@ export class TestOrchestrator {
   private async executeStep(step: GherkinStep) {
     const fullStep = `${step.keyword} ${step.text}`;
     this.cli.logStepStart(fullStep);
+
+    // キーワードに基づいて意図を判断し、ログに出力
+    const keyword = step.keyword.toLowerCase();
+    const intent = keyword.includes("then") ? "assertion" : "action";
+    this.cli.logStepIntent(intent);
+
     const startTime = Date.now();
     let status: "pass" | "fail" = "fail";
     let details: string | undefined;
@@ -148,7 +154,7 @@ export class TestOrchestrator {
         await this.stagehand.page.act(plan);
       } else if (typeof plan === "boolean" && !plan) {
         // planがfalseの場合 (Then句の検証失敗)
-        throw new Error(`検証に失敗しました: "${step.text}"`);
+        throw new Error(`検証ステップ「${step.text}」が失敗しました。`);
       }
       // planがvoid(GivenのURL遷移)またはtrue(Thenの検証成功)の場合は何もしない
 
@@ -201,14 +207,49 @@ export class TestOrchestrator {
     const reportPath = path.join(reportDir, `report-${Date.now()}.md`);
 
     let content = `# テストレポート\n\n`;
+
+    // 1. 正規化されたテスト計画をレポートに追加
     if (this.context.gherkinDocument) {
+      content += `## テスト計画\n\n`;
       content += `**Feature**: ${this.context.gherkinDocument.feature}\n`;
       content += `**Scenario**: ${this.context.gherkinDocument.scenarios[0].title}\n\n`;
+      content += "```gherkin\n";
+      if (this.context.gherkinDocument.background) {
+        this.context.gherkinDocument.background.forEach((step) => {
+          content += `${step.keyword} ${step.text}\n`;
+        });
+      }
+
+      // `scenarios`は配列なので、最初の要素`[0]`にアクセスする
+      this.context.gherkinDocument.scenarios[0].steps.forEach(
+        (step: GherkinStep) => {
+          content += `${step.keyword} ${step.text}\n`;
+
+          if (step.table && step.table.length > 0) {
+            // テーブルのヘッダーを取得 (最初の行からキーを取得)
+            const headers = Object.keys(step.table[0]);
+            content += `  | ${headers.join(" | ")} |\n`;
+            content += `  | ${headers.map(() => "---").join(" | ")} |\n`;
+
+            // テーブルの各行を追加
+            step.table.forEach((row: Record<string, string>) => {
+              const values = headers.map((header) => row[header]);
+              content += `  | ${values.join(" | ")} |\n`;
+            });
+          }
+        },
+      );
+
+      content += "```\n\n";
     }
+
+    // 2. 実行結果セクションを追加
+    content += `## 実行結果\n\n`;
 
     for (const result of this.context.stepResults) {
       const icon = result.status === "pass" ? "✅" : "❌";
-      content += `## ${icon} ${result.step}\n`;
+      // ヘッダーレベルをH3に変更して階層を明確化
+      content += `### ${icon} ${result.step}\n`;
       content += `- **結果**: ${result.status}\n`;
       content += `- **実行時間**: ${result.durationMs}ms\n`;
       if (result.details) {

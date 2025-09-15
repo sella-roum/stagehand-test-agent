@@ -1,0 +1,1 @@
+https://www.stagehand.dev/ にアクセスし、Githubのボタンが存在していることを確認してクリックする。次に、Issueタブをクリックし、Issueのリストの一番上のIssueのリンクをクリックする。その後、遷移したページのIssueのタイトルが`When use custom llm, I get a error that is Invalid response schema.`であることを確認する。

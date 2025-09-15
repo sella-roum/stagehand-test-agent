@@ -58,8 +58,9 @@ export class TestAgent {
     }
     if (keyword.includes("then")) {
       const success = await this.verifyThenStep(step);
+      // 失敗時のエラーメッセージをより具体的にする
       if (!success) {
-        throw new Error(`検証に失敗しました: "${step.text}"`);
+        throw new Error(`検証ステップ「${step.text}」が失敗しました。`);
       }
       return success;
     }
@@ -142,8 +143,6 @@ export class TestAgent {
     if (step.table && step.table.length > 0) {
       console.log("  ...データテーブルに基づいて検証を開始します。");
       const keys = Object.keys(step.table[0]);
-      // Gherkinのテーブル構造から動的に検証スキーマを生成し、
-      // ページから抽出したデータが期待する形式と一致するかを検証します。
       const rowSchema = z.object(
         keys.reduce(
           (acc, key) => {
@@ -189,27 +188,59 @@ export class TestAgent {
       return true;
     }
 
-    // --- 通常のテキスト検証ロジック ---
+    // --- 通常のテキストまたは要素の検証ロジック ---
     const { object: plan } = await generateObject({
       model: this.llm,
       schema: verifierSchema,
       prompt: getVerifierPrompt(step.text),
     });
 
-    const { extraction } = await this.stagehand.page.extract(
-      plan.extractInstruction,
-    );
-    const actual = (extraction as string) || "";
-
-    switch (plan.assertion.operator) {
-      case "toContain":
-        return actual.includes(plan.assertion.expected);
-      case "notToContain":
-        return !actual.includes(plan.assertion.expected);
-      case "toEqual":
-        return actual === plan.assertion.expected;
-      default:
+    // assertionTypeに応じて処理を分岐
+    if (plan.assertionType === "element") {
+      if (!plan.observeInstruction) {
+        console.error("要素検証の指示が生成されませんでした。");
         return false;
+      }
+      const observed = await this.stagehand.page.observe(
+        plan.observeInstruction,
+      );
+      const elementExists = observed.length > 0;
+
+      switch (plan.assertion.operator) {
+        case "toExist":
+          return elementExists;
+        case "notToExist":
+          return !elementExists;
+        default:
+          console.error(
+            `要素検証でサポートされていない演算子です: ${plan.assertion.operator}`,
+          );
+          return false;
+      }
+    } else {
+      // 既存のテキスト検証ロジック
+      if (!plan.extractInstruction) {
+        console.error("テキスト抽出の指示が生成されませんでした。");
+        return false;
+      }
+      const { extraction } = await this.stagehand.page.extract(
+        plan.extractInstruction,
+      );
+      const actual = (extraction as string) || "";
+
+      switch (plan.assertion.operator) {
+        case "toContain":
+          return actual.includes(plan.assertion.expected);
+        case "notToContain":
+          return !actual.includes(plan.assertion.expected);
+        case "toEqual":
+          return actual === plan.assertion.expected;
+        default:
+          console.error(
+            `テキスト検証でサポートされていない演算子です: ${plan.assertion.operator}`,
+          );
+          return false;
+      }
     }
   }
 

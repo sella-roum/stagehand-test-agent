@@ -1,0 +1,1 @@
+https://www.stagehand.dev/にアクセスし、Githubのボタンをクリックして、Issueタブをクリックし、#1053のIssueのリンクをクリックする。

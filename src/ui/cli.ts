@@ -21,6 +21,18 @@ export class CommandLineInterface {
     console.log(chalk.yellow(`\n▶️  実行中: ${step}`));
   }
 
+  /**
+   * ステップの意図（操作か検証か）をコンソールに出力します。
+   * @param {'action' | 'assertion'} intent - ステップの意図。
+   */
+  logStepIntent(intent: "action" | "assertion") {
+    if (intent === "action") {
+      console.log(chalk.cyan("  - 意図: 操作 (Action)"));
+    } else {
+      console.log(chalk.magenta("  - 意図: 検証 (Assertion)"));
+    }
+  }
+
   logStepResult(result: TestStepResult) {
     if (result.status === "pass") {
       console.log(chalk.green(`✅  成功 (${result.durationMs}ms)`));
