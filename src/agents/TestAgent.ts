@@ -2,7 +2,11 @@
  * @file Gherkinシナリオを解釈し、実行可能な計画を立案するAIエージェント。
  */
 import { LanguageModel, generateObject } from "ai";
-import { Stagehand, ObserveResult } from "@browserbasehq/stagehand";
+import {
+  Stagehand,
+  ObserveResult,
+  ExtractResult,
+} from "@browserbasehq/stagehand";
 import { getExecutorPrompt, executorSchema } from "../prompts/executor.js";
 import { getVerifierPrompt, verifierSchema } from "../prompts/verifier.js";
 import {
@@ -12,6 +16,21 @@ import {
 import { GherkinStep } from "../types/gherkin.js";
 import { fillFormFromTable } from "./formFiller.js";
 import { z } from "zod";
+
+/**
+ * 複数の形式で返される可能性があるExtractResultから、主要なテキストコンテンツを安全に抽出します。
+ * @param result - Stagehandのextractメソッドからの戻り値。
+ * @returns {string} 抽出されたテキスト。見つからない場合は空文字列。
+ */
+function getSafeTextFromResult(result: ExtractResult<z.AnyZodObject>): string {
+  if (typeof (result as any).extraction === "string") {
+    return (result as any).extraction;
+  }
+  if (typeof (result as any).page_text === "string") {
+    return (result as any).page_text;
+  }
+  return "";
+}
 
 /**
  * @class TestAgent
@@ -53,12 +72,12 @@ export class TestAgent {
     if (keyword.includes("given")) {
       return this.planGivenStep(step);
     }
-    if (keyword.includes("when") || keyword.includes("and")) {
+    // "And"は正規化エージェントによって"When"か"Then"に解決されることを前提とする
+    if (keyword.includes("when")) {
       return this.planWhenStep(step);
     }
-    if (keyword.includes("then")) {
+    if (keyword.includes("then") || keyword.includes("and")) {
       const success = await this.verifyThenStep(step);
-      // 失敗時のエラーメッセージをより具体的にする
       if (!success) {
         throw new Error(`検証ステップ「${step.text}」が失敗しました。`);
       }
@@ -197,14 +216,16 @@ export class TestAgent {
 
     // assertionTypeに応じて処理を分岐
     if (plan.assertionType === "element") {
-      if (!plan.observeInstruction) {
-        console.error("要素検証の指示が生成されませんでした。");
-        return false;
-      }
       const observed = await this.stagehand.page.observe(
         plan.observeInstruction,
       );
       const elementExists = observed.length > 0;
+
+      if (!elementExists) {
+        console.error(
+          `要素が見つかりませんでした: "${plan.observeInstruction}"`,
+        );
+      }
 
       switch (plan.assertion.operator) {
         case "toExist":
@@ -212,21 +233,15 @@ export class TestAgent {
         case "notToExist":
           return !elementExists;
         default:
-          console.error(
-            `要素検証でサポートされていない演算子です: ${plan.assertion.operator}`,
-          );
+          // スキーマで網羅されているため、ここは通らないはず
           return false;
       }
     } else {
       // 既存のテキスト検証ロジック
-      if (!plan.extractInstruction) {
-        console.error("テキスト抽出の指示が生成されませんでした。");
-        return false;
-      }
-      const { extraction } = await this.stagehand.page.extract(
-        plan.extractInstruction,
-      );
-      const actual = (extraction as string) || "";
+      const result = await this.stagehand.page.extract({
+        instruction: plan.extractInstruction,
+      });
+      const actual = getSafeTextFromResult(result);
 
       switch (plan.assertion.operator) {
         case "toContain":
@@ -236,9 +251,7 @@ export class TestAgent {
         case "toEqual":
           return actual === plan.assertion.expected;
         default:
-          console.error(
-            `テキスト検証でサポートされていない演算子です: ${plan.assertion.operator}`,
-          );
+          // スキーマで網羅されているため、ここは通らないはず
           return false;
       }
     }
@@ -275,9 +288,11 @@ export class TestAgent {
             console.error("エラーオブジェクトが存在しません。");
             continue;
           }
-          const pageContent = await this.stagehand.page
-            .extract()
-            .then((r) => r.page_text || "");
+          const pageContentResult = await this.stagehand.page.extract({
+            instruction: "ページ全体のテキストを抽出してください",
+          });
+          const pageContent = getSafeTextFromResult(pageContentResult);
+
           const { object: healingPlan } = await generateObject({
             model: this.selfHealingLlm,
             schema: selfHealingSchema,

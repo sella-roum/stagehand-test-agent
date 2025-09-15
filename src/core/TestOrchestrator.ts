@@ -127,7 +127,10 @@ export class TestOrchestrator {
 
     // キーワードに基づいて意図を判断し、ログに出力
     const keyword = step.keyword.toLowerCase();
-    const intent = keyword.includes("then") ? "assertion" : "action";
+    // 前提: 正規化済みで And は前段階の種別に展開されている想定
+    const intent: "action" | "assertion" = keyword.includes("then")
+      ? "assertion"
+      : "action";
     this.cli.logStepIntent(intent);
 
     const startTime = Date.now();
@@ -212,7 +215,15 @@ export class TestOrchestrator {
     if (this.context.gherkinDocument) {
       content += `## テスト計画\n\n`;
       content += `**Feature**: ${this.context.gherkinDocument.feature}\n`;
-      content += `**Scenario**: ${this.context.gherkinDocument.scenarios[0].title}\n\n`;
+
+      const hasScenario =
+        this.context.gherkinDocument.scenarios &&
+        this.context.gherkinDocument.scenarios.length > 0;
+
+      content += hasScenario
+        ? `**Scenario**: ${this.context.gherkinDocument.scenarios[0].title}\n\n`
+        : `**Scenario**: (なし)\n\n`;
+
       content += "```gherkin\n";
       if (this.context.gherkinDocument.background) {
         this.context.gherkinDocument.background.forEach((step) => {
@@ -220,26 +231,26 @@ export class TestOrchestrator {
         });
       }
 
-      // `scenarios`は配列なので、最初の要素`[0]`にアクセスする
-      this.context.gherkinDocument.scenarios[0].steps.forEach(
-        (step: GherkinStep) => {
-          content += `${step.keyword} ${step.text}\n`;
-
-          if (step.table && step.table.length > 0) {
-            // テーブルのヘッダーを取得 (最初の行からキーを取得)
-            const headers = Object.keys(step.table[0]);
-            content += `  | ${headers.join(" | ")} |\n`;
-            content += `  | ${headers.map(() => "---").join(" | ")} |\n`;
-
-            // テーブルの各行を追加
-            step.table.forEach((row: Record<string, string>) => {
-              const values = headers.map((header) => row[header]);
-              content += `  | ${values.join(" | ")} |\n`;
-            });
-          }
-        },
-      );
-
+      if (hasScenario) {
+        // `scenarios`は配列なので、最初の要素`[0]`にアクセスする
+        this.context.gherkinDocument.scenarios[0].steps.forEach(
+          (step: GherkinStep) => {
+            content += `${step.keyword} ${step.text}\n`;
+            if (step.table && step.table.length > 0) {
+              // テーブルのヘッダーを取得 (最初の行`[0]`からキーを取得)
+              const headers = Object.keys(step.table);
+              content += `  | ${headers.join(" | ")} |\n`;
+              content += `  | ${headers.map(() => "---").join(" | ")} |\n`;
+              step.table.forEach((row: Record<string, string>) => {
+                const values = headers.map((header) =>
+                  String(row[header]).replace(/\|/g, "\\|"),
+                );
+                content += `  | ${values.join(" | ")} |\n`;
+              });
+            }
+          },
+        );
+      }
       content += "```\n\n";
     }
 
@@ -264,19 +275,25 @@ export class TestOrchestrator {
         content += `- **実行コマンド詳細**:\n`;
         content += "  ```json\n";
 
-        // セキュリティのため、'password'を含む可能性のあるコマンド引数を '[REDACTED]' に置き換える
-        const sanitizedCommands = result.commands.map((cmd) => {
-          const sanitizedCmd: Record<string, any> = { ...cmd };
-          // 'act'コマンドの引数をチェック
-          if (
-            sanitizedCmd.method === "act" &&
-            typeof sanitizedCmd.action === "string" &&
-            sanitizedCmd.action.toLowerCase().includes("password")
-          ) {
-            sanitizedCmd.action = "[REDACTED]";
+        const SENSITIVE_KEYS =
+          /password|pass|secret|token|apikey|authorization|auth|credential/i;
+        const redact = (v: any): any => {
+          if (v && typeof v === "object") {
+            if (Array.isArray(v)) return v.map((x) => redact(x));
+            return Object.fromEntries(
+              Object.entries(v).map(([k, val]) => {
+                const shouldRedact =
+                  SENSITIVE_KEYS.test(k) ||
+                  (typeof val === "string" && SENSITIVE_KEYS.test(val));
+                return [k, shouldRedact ? "[REDACTED]" : redact(val)];
+              }),
+            );
           }
-          return sanitizedCmd;
-        });
+          if (typeof v === "string" && SENSITIVE_KEYS.test(v))
+            return "[REDACTED]";
+          return v;
+        };
+        const sanitizedCommands = result.commands.map((cmd) => redact(cmd));
 
         content += JSON.stringify(sanitizedCommands, null, 2);
         content += "\n  ```\n";

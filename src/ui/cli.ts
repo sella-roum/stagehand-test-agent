@@ -5,6 +5,7 @@ import chalk from "chalk";
 import { TestStepResult } from "../core/ExecutionContext.js";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import type { StepIntent } from "../types/recorder.js";
 
 export class CommandLineInterface {
   private rl: readline.Interface;
@@ -23,13 +24,15 @@ export class CommandLineInterface {
 
   /**
    * ステップの意図（操作か検証か）をコンソールに出力します。
-   * @param {'action' | 'assertion'} intent - ステップの意図。
+   * @param {StepIntent} intent - ステップの意図。
    */
-  logStepIntent(intent: "action" | "assertion") {
+  logStepIntent(intent: StepIntent) {
     if (intent === "action") {
       console.log(chalk.cyan("  - 意図: 操作 (Action)"));
-    } else {
+    } else if (intent === "assertion") {
       console.log(chalk.magenta("  - 意図: 検証 (Assertion)"));
+    } else {
+      console.log(chalk.yellow("  - 意図: 不明 (Unknown)"));
     }
   }
 

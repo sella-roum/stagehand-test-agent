@@ -46,6 +46,14 @@ export class ScenarioRecorder {
 
       switch (command) {
         case "save":
+          if (this.recordedSteps.length === 0) {
+            this.cli.log(
+              chalk.yellow(
+                "記録された操作がありません。少なくとも1件の操作を記録してください。",
+              ),
+            );
+            break; // 続行
+          }
           isRecording = false;
           return await this.saveScenario();
         case "cancel":
@@ -66,7 +74,11 @@ export class ScenarioRecorder {
   private async recordStep(userInstruction: string): Promise<void> {
     let success = false;
     let retryCount = 0;
-    const maxRetries = Number(process.env.RECORDER_MAX_RETRIES ?? "1") || 1; // ユーザー再試行回数
+    const rawRetries = process.env.RECORDER_MAX_RETRIES;
+    const parsedRetries = rawRetries !== undefined ? Number(rawRetries) : 1;
+    const maxRetries =
+      Number.isFinite(parsedRetries) && parsedRetries >= 0 ? parsedRetries : 1; // 0も許容
+
     let currentInstruction = userInstruction;
 
     while (!success && retryCount <= maxRetries) {
@@ -165,6 +177,7 @@ export class ScenarioRecorder {
    */
   private async saveScenario(): Promise<string> {
     if (this.recordedSteps.length === 0) {
+      // このチェックはstartRecordingに移動したが、念のため残す
       throw new Error("記録された操作がありません。");
     }
     this.cli.log("  - 記録された操作からシナリオを生成中...");
@@ -181,7 +194,7 @@ export class ScenarioRecorder {
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filePath = path.join(scenariosDir, `recorded-${timestamp}.txt`);
-    await fs.writeFile(filePath, generatedScenario);
+    await fs.writeFile(filePath, generatedScenario, { encoding: "utf-8" });
 
     this.cli.log(chalk.green(`  - シナリオを保存しました: ${filePath}`));
     return filePath;

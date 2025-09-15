@@ -40,7 +40,7 @@ export class InstructionClassifierAgent {
       // フォールバック: 簡易キーワードで推定
       const lowerInstruction = instruction.toLowerCase();
       const isAssertion =
-        /確認|検証|表示されている|含まれている|等しい|一致|含む/.test(
+        /確認|検証|表示されている|含まれている|等しい|一致|含む|verify|assert|should|contains?|equals?|exact(?:ly)?|match(?:es)?/.test(
           lowerInstruction,
         );
       return { intent: isAssertion ? "assertion" : "action" };

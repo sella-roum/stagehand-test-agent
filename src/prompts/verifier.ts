@@ -3,47 +3,43 @@
  */
 import { z } from "zod";
 
-// 演算子に 'toExist' と 'notToExist' を追加
-const assertionOperatorSchema = z.enum([
-  "toContain",
-  "notToContain",
-  "toEqual",
-  "toExist",
-  "notToExist",
-]);
+const textOperatorSchema = z.enum(["toContain", "notToContain", "toEqual"]);
+const elementOperatorSchema = z.enum(["toExist", "notToExist"]);
 
-export const verifierSchema = z.object({
-  // 検証の種類を判断するためのフィールドを追加
-  assertionType: z
-    .enum(["text", "element"])
-    .describe(
-      "検証の種類。'text'はテキスト内容の比較、'element'は要素の存在確認。",
-    ),
-  // 'element'検証の場合、observeInstructionを使用
-  observeInstruction: z
-    .string()
-    .optional()
-    .describe(
-      "assertionTypeが'element'の場合に、存在を確認する要素を見つけるための指示。",
-    ),
-  // 'text'検証の場合、extractInstructionを使用
-  extractInstruction: z
-    .string()
-    .optional()
-    .describe("assertionTypeが'text'の場合に、検証内容を確認するための質問。"),
-  assertion: z.object({
-    expected: z
+export const verifierSchema = z.discriminatedUnion("assertionType", [
+  z.object({
+    assertionType: z.literal("text"),
+    extractInstruction: z
       .string()
       .describe(
-        "期待される値（文字列）。'toExist'/'notToExist'の場合は空文字列でもよい。",
+        "assertionTypeが'text'の場合に、検証内容を確認するための質問。",
       ),
-    operator: assertionOperatorSchema,
+    assertion: z.object({
+      expected: z.string().describe("期待される値（文字列）。"),
+      operator: textOperatorSchema,
+    }),
+    observeInstruction: z.never().optional(), // 混在防止
   }),
-});
+  z.object({
+    assertionType: z.literal("element"),
+    observeInstruction: z
+      .string()
+      .describe(
+        "assertionTypeが'element'の場合に、存在を確認する要素を見つけるための指示。",
+      ),
+    assertion: z.object({
+      expected: z.string().optional().default(""),
+      operator: elementOperatorSchema,
+    }),
+    extractInstruction: z.never().optional(), // 混在防止
+  }),
+]);
 
 export function getVerifierPrompt(thenStep: string): string {
   return `
 あなたは、Gherkinの'Then'ステップを解釈し、Stagehandで検証可能な形式に変換する専門家です。
+
+必ず有効なJSONのみを出力してください。コードフェンス(\`\`\`)やコメント、説明文は出力しないでください。キーはダブルクォートで囲みます。
 
 # あなたのタスク
 ユーザーの'Then'ステップの意図を分析し、以下の2種類の検証のどちらに該当するかを判断してください。

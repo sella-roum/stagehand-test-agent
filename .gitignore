@@ -13,3 +13,6 @@ dist
 # Playwright reports
 playwright-report/
 test-results/
+
+# Auto-generated scenarios from record mode
+tests/scenarios/recorded-*.txt

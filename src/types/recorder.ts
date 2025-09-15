@@ -10,7 +10,7 @@ export type StepIntent = (typeof StepIntent)[number];
  * @description 記録された単一の操作ステップを表すインターフェース。
  */
 export interface RecordedStep {
-  /** @property {'action' | 'assertion'} type - このステップが「操作」か「検証」かを示す。 */
+  /** @property {StepIntent} type - このステップが「操作」か「検証」かを示す。 */
   readonly type: StepIntent;
   /** @property {string} userInstruction - このステップを実行するためにユーザーが入力した自然言語の指示。 */
   readonly userInstruction: string;
