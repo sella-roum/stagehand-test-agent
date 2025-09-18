@@ -11,6 +11,7 @@ import { GherkinStep } from "../types/gherkin.js";
 import fs from "fs/promises";
 import path from "path";
 import chalk from "chalk";
+import { StepIntent } from "../types/recorder.js";
 
 /**
  * @class TestOrchestrator
@@ -128,7 +129,7 @@ export class TestOrchestrator {
     // キーワードに基づいて意図を判断し、ログに出力
     const keyword = step.keyword.toLowerCase();
     // 前提: 正規化済みで And は前段階の種別に展開されている想定
-    const intent: "action" | "assertion" = keyword.includes("then")
+    const intent: StepIntent = keyword.includes("then")
       ? "assertion"
       : "action";
     this.cli.logStepIntent(intent);
@@ -278,20 +279,20 @@ export class TestOrchestrator {
         const SENSITIVE_KEYS =
           /password|pass|secret|token|apikey|authorization|auth|credential/i;
         const redact = (v: any): any => {
-          if (v && typeof v === "object") {
-            if (Array.isArray(v)) return v.map((x) => redact(x));
-            return Object.fromEntries(
-              Object.entries(v).map(([k, val]) => {
-                const shouldRedact =
-                  SENSITIVE_KEYS.test(k) ||
-                  (typeof val === "string" && SENSITIVE_KEYS.test(val));
-                return [k, shouldRedact ? "[REDACTED]" : redact(val)];
-              }),
-            );
+          if (!v || typeof v !== "object") {
+            if (typeof v === "string" && SENSITIVE_KEYS.test(v)) {
+              return "[REDACTED]";
+            }
+            return v;
           }
-          if (typeof v === "string" && SENSITIVE_KEYS.test(v))
-            return "[REDACTED]";
-          return v;
+          if (Array.isArray(v)) return v.map((x) => redact(x));
+
+          return Object.fromEntries(
+            Object.entries(v).map(([k, val]) => {
+              const shouldRedact = SENSITIVE_KEYS.test(k);
+              return [k, shouldRedact ? "[REDACTED]" : redact(val)];
+            }),
+          );
         };
         const sanitizedCommands = result.commands.map((cmd) => redact(cmd));
 

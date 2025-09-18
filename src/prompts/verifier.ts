@@ -7,32 +7,40 @@ const textOperatorSchema = z.enum(["toContain", "notToContain", "toEqual"]);
 const elementOperatorSchema = z.enum(["toExist", "notToExist"]);
 
 export const verifierSchema = z.discriminatedUnion("assertionType", [
-  z.object({
-    assertionType: z.literal("text"),
-    extractInstruction: z
-      .string()
-      .describe(
-        "assertionTypeが'text'の場合に、検証内容を確認するための質問。",
-      ),
-    assertion: z.object({
-      expected: z.string().describe("期待される値（文字列）。"),
-      operator: textOperatorSchema,
-    }),
-    observeInstruction: z.never().optional(), // 混在防止
-  }),
-  z.object({
-    assertionType: z.literal("element"),
-    observeInstruction: z
-      .string()
-      .describe(
-        "assertionTypeが'element'の場合に、存在を確認する要素を見つけるための指示。",
-      ),
-    assertion: z.object({
-      expected: z.string().optional().default(""),
-      operator: elementOperatorSchema,
-    }),
-    extractInstruction: z.never().optional(), // 混在防止
-  }),
+  z
+    .object({
+      assertionType: z.literal("text"),
+      extractInstruction: z
+        .string()
+        .describe(
+          "assertionTypeが'text'の場合に、検証内容を確認するための質問。",
+        ),
+      assertion: z
+        .object({
+          expected: z.string().describe("期待される値（文字列）。"),
+          operator: textOperatorSchema,
+        })
+        .strict(),
+      observeInstruction: z.never().optional(), // 混在防止
+    })
+    .strict(),
+  z
+    .object({
+      assertionType: z.literal("element"),
+      observeInstruction: z
+        .string()
+        .describe(
+          "assertionTypeが'element'の場合に、存在を確認する要素を見つけるための指示。",
+        ),
+      assertion: z
+        .object({
+          expected: z.string().optional().default(""),
+          operator: elementOperatorSchema,
+        })
+        .strict(),
+      extractInstruction: z.never().optional(), // 混在防止
+    })
+    .strict(),
 ]);
 
 export function getVerifierPrompt(thenStep: string): string {
