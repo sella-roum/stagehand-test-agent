@@ -238,7 +238,7 @@ export class TestOrchestrator {
           (step: GherkinStep) => {
             content += `${step.keyword} ${step.text}\n`;
             if (step.table && step.table.length > 0) {
-              // テーブルのヘッダーを取得 (最初の行`[0]`からキーを取得)
+              // テーブルのヘッダーを取得 (最初の行からキーを取得)
               const headers = Object.keys(step.table[0]);
               content += `  | ${headers.join(" | ")} |\n`;
               content += `  | ${headers.map(() => "---").join(" | ")} |\n`;
@@ -277,14 +277,9 @@ export class TestOrchestrator {
         content += "  ```json\n";
 
         const SENSITIVE_KEYS =
-          /password|pass|secret|token|apikey|authorization|auth|credential/i;
+          /\b(pass(word)?|secret|token|api[_-]?key|authorization|auth(entication|orization)?|credential(s)?|cookie|set-cookie|session|csrf|client_secret|access_token|id_token|refresh_token)\b/i;
         const redact = (v: any): any => {
-          if (!v || typeof v !== "object") {
-            if (typeof v === "string" && SENSITIVE_KEYS.test(v)) {
-              return "[REDACTED]";
-            }
-            return v;
-          }
+          if (v === null || typeof v !== "object") return v;
           if (Array.isArray(v)) return v.map((x) => redact(x));
 
           return Object.fromEntries(
