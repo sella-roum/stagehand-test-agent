@@ -239,7 +239,7 @@ export class TestOrchestrator {
             content += `${step.keyword} ${step.text}\n`;
             if (step.table && step.table.length > 0) {
               // テーブルのヘッダーを取得 (最初の行`[0]`からキーを取得)
-              const headers = Object.keys(step.table);
+              const headers = Object.keys(step.table[0]);
               content += `  | ${headers.join(" | ")} |\n`;
               content += `  | ${headers.map(() => "---").join(" | ")} |\n`;
               step.table.forEach((row: Record<string, string>) => {
