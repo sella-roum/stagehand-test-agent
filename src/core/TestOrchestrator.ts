@@ -277,17 +277,28 @@ export class TestOrchestrator {
         content += `- **実行コマンド詳細**:\n`;
         content += "  ```json\n";
 
-        const SENSITIVE_KEYS =
-          /\b(pass(word)?|secret|token|api[_-]?key|authorization|auth(entication|orization)?|credential(s)?|cookie|set-cookie|session|csrf|client_secret|access_token|id_token|refresh_token)\b/i;
+        const normalizeKey = (key: string) =>
+          key
+            .replace(/([a-z0-9])([A-Z])/g, "$1_$2") // camelCase to snake_case
+            .replace(/[\s-]+/g, "_") // spaces/hyphens to snake_case
+            .toLowerCase();
+
+        // 正規化後のキー（snake_case）と照合するパターン
+        const SENSITIVE_KEY_PATTERN =
+          /\b(pass(word)?|secret|token|api_key|authorization|auth(entication|orization)?|credential(s)?|cookie|set_cookie|session|csrf|client_secret|access_token|id_token|refresh_token)\b/;
+
+        const shouldRedactKey = (key: string) =>
+          SENSITIVE_KEY_PATTERN.test(normalizeKey(key));
+
         const redact = (v: any): any => {
           if (v === null || typeof v !== "object") return v;
           if (Array.isArray(v)) return v.map((x) => redact(x));
 
           return Object.fromEntries(
-            Object.entries(v).map(([k, val]) => {
-              const shouldRedact = SENSITIVE_KEYS.test(k);
-              return [k, shouldRedact ? "[REDACTED]" : redact(val)];
-            }),
+            Object.entries(v).map(([k, val]) => [
+              k,
+              shouldRedactKey(k) ? "[REDACTED]" : redact(val),
+            ]),
           );
         };
         const sanitizedCommands = result.commands.map((cmd) => redact(cmd));
