@@ -144,9 +144,11 @@ export class TestAgent {
       });
 
       // 2. 観察を実行
-      const observed = await this.stagehand.page.observe(
-        plan.observeInstruction,
-      );
+      // [レビュー対応] { returnAction: true } を追加し、`method` を取得する
+      const observed = await this.stagehand.page.observe({
+        instruction: plan.observeInstruction,
+        returnAction: true,
+      });
       if (observed.length === 0) {
         throw new Error(
           `要素が見つかりませんでした: "${plan.observeInstruction}"`,
@@ -156,19 +158,43 @@ export class TestAgent {
       // 3. AIが判断した操作種別 (plan.intendedAction) に基づいてフィルタリング
       const intendedAction = plan.intendedAction;
       if (intendedAction !== "unknown" && observed.length > 1) {
+        // スクロール系メソッドのリスト
+        const SCROLL_METHODS = [
+          "scroll",
+          "scrollto",
+          "scrollintoview",
+          "scrollbypixeloffset",
+          "mouse.wheel",
+          "nextchunk",
+          "prevchunk",
+        ];
+
         const filtered = observed.filter((obsResult) => {
+          // `obsResult.method` が undefined の可能性があるため、防御的に `?.toLowerCase()` を使用する
+          const method = obsResult.method?.toLowerCase();
+          if (!method) return false;
+
           // AIの意図 (intendedAction) と
           // Stagehandが返すメソッド (obsResult.method) をマッピングする
           switch (intendedAction) {
             case "click":
-              return obsResult.method === "click";
-            case "type":
-              // Stagehandの入力系メソッドは 'fill' と想定
-              return obsResult.method === "fill" || obsResult.method === "type";
+              return method === "click";
+            case "double_click":
+              return method === "doubleclick" || method === "dblclick"; // dblclickもPlaywrightのメソッド
+            case "fill":
+              // Stagehandの入力系メソッドは 'fill' または 'type' と想定
+              return method === "fill" || method === "type";
+            case "press":
+              return method === "press";
             case "select":
-              return obsResult.method === "selectOption";
+              // 'selectOption' と 'selectOptionFromDropdown' の両方をカバー
+              return method.includes("select");
             case "hover":
-              return obsResult.method === "hover";
+              return method === "hover";
+            case "scroll":
+              return SCROLL_METHODS.includes(method);
+            case "drag":
+              return method === "draganddrop";
             default:
               return false;
           }
@@ -178,17 +204,19 @@ export class TestAgent {
           // フィルタリングされた結果の先頭を返す
           return filtered[0];
         }
-        // フィルタリングしたが一致するものがなかった場合、
-        // 警告を出しつつ、フォールバックとして先頭の要素を返す
-        console.warn(
-          `AIの意図「${intendedAction}」に一致する要素が見つかりませんでしたが、` +
-            `Observeは ${observed.length} 件の要素を返しました。` +
-            `先頭の要素 (method: '${observed[0].method}') を使用します。`,
+
+        // 警告ではなく、厳密にエラーをスローする
+        // フィルタリングしたが一致するものがなかった場合、エラーをスロー
+        throw new Error(
+          `AIの意図「${intendedAction}」に一致する要素が見つかりませんでした。` +
+            `Observeは ${observed.length} 件の要素を返しましたが、` +
+            `いずれも期待される method を持っていません。` +
+            `返された要素: ${observed.map((o) => o.method ?? "undefined").join(", ")}`,
         );
       }
 
-      // フィルタリング不要（unknown）、フィルタリングで候補0、
-      // または元々候補が1つだった場合は、従来通り先頭を返す
+      // フィルタリング不要（unknown）、または元々候補が1つだった場合は、
+      // 従来通り先頭を返す
       return observed[0];
     });
   }
@@ -258,9 +286,13 @@ export class TestAgent {
 
     // assertionTypeに応じて処理を分岐
     if (plan.assertionType === "element") {
-      const observed = await this.stagehand.page.observe(
-        plan.observeInstruction,
-      );
+      // [レビュー対応] { returnAction: true } を追加
+      // (verifyThenStep では method は使わないが、
+      //  observe の呼び出し箇所としてレビューで指摘されていたため、念のため統一する)
+      const observed = await this.stagehand.page.observe({
+        instruction: plan.observeInstruction,
+        returnAction: true,
+      });
       const elementExists = observed.length > 0;
 
       if (!elementExists) {

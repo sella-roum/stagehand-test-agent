@@ -19,13 +19,27 @@ export const executorSchema = z.object({
    * これに基づき、observeが返した複数の候補をフィルタリングする。
    */
   intendedAction: z
-    .enum(["click", "type", "select", "hover", "unknown"])
+    .enum([
+      "click",
+      "double_click",
+      "fill",
+      "press",
+      "select",
+      "hover",
+      "scroll",
+      "drag",
+      "unknown",
+    ])
     .describe(
       "ユーザーがその要素に対して行いたい操作の種別。" +
         "クリック/押下は'click'、" +
-        "テキスト入力/書き込みは'type'、" +
+        "ダブルクリックは'double_click'、" +
+        "テキスト入力/書き込みは'fill'、" +
+        "Enterキーなどの単一キー押下は'press'、" +
         "ドロップダウン選択は'select'、" +
         "マウスオーバーは'hover'、" +
+        "スクロール操作は'scroll'、" +
+        "ドラッグ＆ドロップは'drag'、" +
         "不明な場合は'unknown'に分類する。",
     ),
 });
@@ -37,7 +51,7 @@ export function getExecutorPrompt(whenStep: string): string {
 # ルール
 - 'When'ステップで記述されている操作対象（例：「ログインボタン」「検索バー」）を特定してください。
 - その要素を見つけるための、簡潔で明確な自然言語の指示を 'observeInstruction' として生成してください。
-- そのステップがどの操作（click, type, select, hover）に該当するかを 'intendedAction' として分類してください。
+- そのステップがどの操作（click, double_click, fill, press, select, hover, scroll, drag）に該当するかを 'intendedAction' として分類してください。
 
 # 出力例
 入力:
@@ -53,7 +67,7 @@ export function getExecutorPrompt(whenStep: string): string {
 出力 (JSON形式):
 {
   "observeInstruction": "Find the search bar",
-  "intendedAction": "type"
+  "intendedAction": "fill"
 }
 
 入力:
@@ -70,6 +84,22 @@ export function getExecutorPrompt(whenStep: string): string {
 {
   "observeInstruction": "Find 'Products' in the navigation menu",
   "intendedAction": "hover"
+}
+
+入力:
+'ユーザーがページ下部までスクロールする'
+出力 (JSON形式):
+{
+  "observeInstruction": "Find the main page area or body",
+  "intendedAction": "scroll"
+}
+
+入力:
+'ユーザーが検索バーでEnterキーを押す'
+出力 (JSON形式):
+{
+  "observeInstruction": "Find the search bar",
+  "intendedAction": "press"
 }
 
 # 変換対象の'When'ステップ
