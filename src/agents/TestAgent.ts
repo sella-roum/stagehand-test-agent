@@ -129,16 +129,21 @@ export class TestAgent {
    */
   private async planWhenStep(step: GherkinStep): Promise<ObserveResult> {
     return this.planWithSelfHealing(step, async (currentText) => {
+      // Gherkinizerの設計により、テーブル入力と他の操作（クリック等）は
+      // 別ステップに分離されていることが期待される。
+      // もしテーブルが存在する場合、既存のロジック（formFillerの実行）を優先する。
       if (step.table && step.table.length > 0) {
         await fillFormFromTable(this.stagehand, step.table);
       }
 
+      // 1. AIコールで「観察指示」と「操作種別」を同時に取得
       const { object: plan } = await generateObject({
         model: this.llm,
         schema: executorSchema,
         prompt: getExecutorPrompt(currentText),
       });
 
+      // 2. 観察を実行
       const observed = await this.stagehand.page.observe(
         plan.observeInstruction,
       );
@@ -147,7 +152,44 @@ export class TestAgent {
           `要素が見つかりませんでした: "${plan.observeInstruction}"`,
         );
       }
-      return observed[0]; // 計画としてObserveResultを返す
+
+      // 3. AIが判断した操作種別 (plan.intendedAction) に基づいてフィルタリング
+      const intendedAction = plan.intendedAction;
+      if (intendedAction !== "unknown" && observed.length > 1) {
+        const filtered = observed.filter((obsResult) => {
+          // AIの意図 (intendedAction) と
+          // Stagehandが返すメソッド (obsResult.method) をマッピングする
+          switch (intendedAction) {
+            case "click":
+              return obsResult.method === "click";
+            case "type":
+              // Stagehandの入力系メソッドは 'fill' と想定
+              return obsResult.method === "fill" || obsResult.method === "type";
+            case "select":
+              return obsResult.method === "selectOption";
+            case "hover":
+              return obsResult.method === "hover";
+            default:
+              return false;
+          }
+        });
+
+        if (filtered.length > 0) {
+          // フィルタリングされた結果の先頭を返す
+          return filtered[0];
+        }
+        // フィルタリングしたが一致するものがなかった場合、
+        // 警告を出しつつ、フォールバックとして先頭の要素を返す
+        console.warn(
+          `AIの意図「${intendedAction}」に一致する要素が見つかりませんでしたが、` +
+            `Observeは ${observed.length} 件の要素を返しました。` +
+            `先頭の要素 (method: '${observed[0].method}') を使用します。`,
+        );
+      }
+
+      // フィルタリング不要（unknown）、フィルタリングで候補0、
+      // または元々候補が1つだった場合は、従来通り先頭を返す
+      return observed[0];
     });
   }
 
