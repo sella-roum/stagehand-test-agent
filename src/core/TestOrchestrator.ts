@@ -129,9 +129,10 @@ export class TestOrchestrator {
     // キーワードに基づいて意図を判断し、ログに出力
     const keyword = step.keyword.toLowerCase();
     // 前提: 正規化済みで And は前段階の種別に展開されている想定
-    const intent: StepIntent = keyword.includes("then")
-      ? "assertion"
-      : "action";
+    const intent: StepIntent =
+      keyword.includes("then") || keyword.includes("and")
+        ? "assertion"
+        : "action";
     this.cli.logStepIntent(intent);
 
     const startTime = Date.now();
