@@ -70,6 +70,15 @@ export function createStagehandConfig(): ConstructorParams {
         width: 1280,
         height: 720,
       },
+      /**
+       * Chrome DevTools Protocol (CDP) 用のデバッグポート。
+       * デフォルト9222。環境変数 STAGEHAND_CDP_PORT で上書き可能。
+       * セキュリティ上、loopback に限定します。
+       */
+      args: [
+        `--remote-debugging-port=${process.env.STAGEHAND_CDP_PORT ?? "9222"}`,
+        "--remote-debugging-address=127.0.0.1",
+      ],
     },
     // Stagehandライブラリ自体が内部的に使用するLLM。
     // DOM解析など頻繁な呼び出しのために、コストと速度に優れた高速なモデルを指定します。

@@ -2,7 +2,11 @@
  * @file Gherkinシナリオを解釈し、実行可能な計画を立案するAIエージェント。
  */
 import { LanguageModel, generateObject } from "ai";
-import { Stagehand, ObserveResult } from "@browserbasehq/stagehand";
+import {
+  Stagehand,
+  ObserveResult,
+  ExtractResult,
+} from "@browserbasehq/stagehand";
 import { getExecutorPrompt, executorSchema } from "../prompts/executor.js";
 import { getVerifierPrompt, verifierSchema } from "../prompts/verifier.js";
 import {
@@ -12,6 +16,21 @@ import {
 import { GherkinStep } from "../types/gherkin.js";
 import { fillFormFromTable } from "./formFiller.js";
 import { z } from "zod";
+
+/**
+ * 複数の形式で返される可能性があるExtractResultから、主要なテキストコンテンツを安全に抽出します。
+ * @param result - Stagehandのextractメソッドからの戻り値。
+ * @returns {string} 抽出されたテキスト。見つからない場合は空文字列。
+ */
+function getSafeTextFromResult(result: ExtractResult<z.AnyZodObject>): string {
+  if (typeof (result as any).extraction === "string") {
+    return (result as any).extraction;
+  }
+  if (typeof (result as any).page_text === "string") {
+    return (result as any).page_text;
+  }
+  return "";
+}
 
 /**
  * @class TestAgent
@@ -53,13 +72,14 @@ export class TestAgent {
     if (keyword.includes("given")) {
       return this.planGivenStep(step);
     }
-    if (keyword.includes("when") || keyword.includes("and")) {
+    // "And"は正規化エージェントによって"When"か"Then"に解決されることを前提とする
+    if (keyword.includes("when")) {
       return this.planWhenStep(step);
     }
-    if (keyword.includes("then")) {
+    if (keyword.includes("then") || keyword.includes("and")) {
       const success = await this.verifyThenStep(step);
       if (!success) {
-        throw new Error(`検証に失敗しました: "${step.text}"`);
+        throw new Error(`検証ステップ「${step.text}」が失敗しました。`);
       }
       return success;
     }
@@ -142,8 +162,6 @@ export class TestAgent {
     if (step.table && step.table.length > 0) {
       console.log("  ...データテーブルに基づいて検証を開始します。");
       const keys = Object.keys(step.table[0]);
-      // Gherkinのテーブル構造から動的に検証スキーマを生成し、
-      // ページから抽出したデータが期待する形式と一致するかを検証します。
       const rowSchema = z.object(
         keys.reduce(
           (acc, key) => {
@@ -189,27 +207,53 @@ export class TestAgent {
       return true;
     }
 
-    // --- 通常のテキスト検証ロジック ---
+    // --- 通常のテキストまたは要素の検証ロジック ---
     const { object: plan } = await generateObject({
       model: this.llm,
       schema: verifierSchema,
       prompt: getVerifierPrompt(step.text),
     });
 
-    const { extraction } = await this.stagehand.page.extract(
-      plan.extractInstruction,
-    );
-    const actual = (extraction as string) || "";
+    // assertionTypeに応じて処理を分岐
+    if (plan.assertionType === "element") {
+      const observed = await this.stagehand.page.observe(
+        plan.observeInstruction,
+      );
+      const elementExists = observed.length > 0;
 
-    switch (plan.assertion.operator) {
-      case "toContain":
-        return actual.includes(plan.assertion.expected);
-      case "notToContain":
-        return !actual.includes(plan.assertion.expected);
-      case "toEqual":
-        return actual === plan.assertion.expected;
-      default:
-        return false;
+      if (!elementExists) {
+        console.error(
+          `要素が見つかりませんでした: "${plan.observeInstruction}"`,
+        );
+      }
+
+      switch (plan.assertion.operator) {
+        case "toExist":
+          return elementExists;
+        case "notToExist":
+          return !elementExists;
+        default:
+          // スキーマで網羅されているため、ここは通らないはず
+          return false;
+      }
+    } else {
+      // 既存のテキスト検証ロジック
+      const result = await this.stagehand.page.extract({
+        instruction: plan.extractInstruction,
+      });
+      const actual = getSafeTextFromResult(result);
+
+      switch (plan.assertion.operator) {
+        case "toContain":
+          return actual.includes(plan.assertion.expected);
+        case "notToContain":
+          return !actual.includes(plan.assertion.expected);
+        case "toEqual":
+          return actual === plan.assertion.expected;
+        default:
+          // スキーマで網羅されているため、ここは通らないはず
+          return false;
+      }
     }
   }
 
@@ -244,9 +288,11 @@ export class TestAgent {
             console.error("エラーオブジェクトが存在しません。");
             continue;
           }
-          const pageContent = await this.stagehand.page
-            .extract()
-            .then((r) => r.page_text || "");
+          const pageContentResult = await this.stagehand.page.extract({
+            instruction: "ページ全体のテキストを抽出してください",
+          });
+          const pageContent = getSafeTextFromResult(pageContentResult);
+
           const { object: healingPlan } = await generateObject({
             model: this.selfHealingLlm,
             schema: selfHealingSchema,

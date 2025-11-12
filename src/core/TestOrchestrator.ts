@@ -11,6 +11,7 @@ import { GherkinStep } from "../types/gherkin.js";
 import fs from "fs/promises";
 import path from "path";
 import chalk from "chalk";
+import { StepIntent } from "../types/recorder.js";
 
 /**
  * @class TestOrchestrator
@@ -124,6 +125,16 @@ export class TestOrchestrator {
   private async executeStep(step: GherkinStep) {
     const fullStep = `${step.keyword} ${step.text}`;
     this.cli.logStepStart(fullStep);
+
+    // キーワードに基づいて意図を判断し、ログに出力
+    const keyword = step.keyword.toLowerCase();
+    // 前提: 正規化済みで And は前段階の種別に展開されている想定
+    const intent: StepIntent =
+      keyword.includes("then") || keyword.includes("and")
+        ? "assertion"
+        : "action";
+    this.cli.logStepIntent(intent);
+
     const startTime = Date.now();
     let status: "pass" | "fail" = "fail";
     let details: string | undefined;
@@ -148,7 +159,7 @@ export class TestOrchestrator {
         await this.stagehand.page.act(plan);
       } else if (typeof plan === "boolean" && !plan) {
         // planがfalseの場合 (Then句の検証失敗)
-        throw new Error(`検証に失敗しました: "${step.text}"`);
+        throw new Error(`検証ステップ「${step.text}」が失敗しました。`);
       }
       // planがvoid(GivenのURL遷移)またはtrue(Thenの検証成功)の場合は何もしない
 
@@ -201,14 +212,57 @@ export class TestOrchestrator {
     const reportPath = path.join(reportDir, `report-${Date.now()}.md`);
 
     let content = `# テストレポート\n\n`;
+
+    // 1. 正規化されたテスト計画をレポートに追加
     if (this.context.gherkinDocument) {
+      content += `## テスト計画\n\n`;
       content += `**Feature**: ${this.context.gherkinDocument.feature}\n`;
-      content += `**Scenario**: ${this.context.gherkinDocument.scenarios[0].title}\n\n`;
+
+      const hasScenario =
+        this.context.gherkinDocument.scenarios &&
+        this.context.gherkinDocument.scenarios.length > 0;
+
+      content += hasScenario
+        ? `**Scenario**: ${this.context.gherkinDocument.scenarios[0].title}\n\n`
+        : `**Scenario**: (なし)\n\n`;
+
+      content += "```gherkin\n";
+      if (this.context.gherkinDocument.background) {
+        this.context.gherkinDocument.background.forEach((step) => {
+          content += `${step.keyword} ${step.text}\n`;
+        });
+      }
+
+      if (hasScenario) {
+        // `scenarios`は配列なので、最初の要素`[0]`にアクセスする
+        this.context.gherkinDocument.scenarios[0].steps.forEach(
+          (step: GherkinStep) => {
+            content += `${step.keyword} ${step.text}\n`;
+            if (step.table && step.table.length > 0) {
+              // テーブルのヘッダーを取得 (最初の行からキーを取得)
+              const headers = Object.keys(step.table[0]);
+              content += `  | ${headers.join(" | ")} |\n`;
+              content += `  | ${headers.map(() => "---").join(" | ")} |\n`;
+              step.table.forEach((row: Record<string, string>) => {
+                const values = headers.map((header) =>
+                  String(row[header]).replace(/\|/g, "\\|"),
+                );
+                content += `  | ${values.join(" | ")} |\n`;
+              });
+            }
+          },
+        );
+      }
+      content += "```\n\n";
     }
+
+    // 2. 実行結果セクションを追加
+    content += `## 実行結果\n\n`;
 
     for (const result of this.context.stepResults) {
       const icon = result.status === "pass" ? "✅" : "❌";
-      content += `## ${icon} ${result.step}\n`;
+      // ヘッダーレベルをH3に変更して階層を明確化
+      content += `### ${icon} ${result.step}\n`;
       content += `- **結果**: ${result.status}\n`;
       content += `- **実行時間**: ${result.durationMs}ms\n`;
       if (result.details) {
@@ -223,19 +277,31 @@ export class TestOrchestrator {
         content += `- **実行コマンド詳細**:\n`;
         content += "  ```json\n";
 
-        // セキュリティのため、'password'を含む可能性のあるコマンド引数を '[REDACTED]' に置き換える
-        const sanitizedCommands = result.commands.map((cmd) => {
-          const sanitizedCmd: Record<string, any> = { ...cmd };
-          // 'act'コマンドの引数をチェック
-          if (
-            sanitizedCmd.method === "act" &&
-            typeof sanitizedCmd.action === "string" &&
-            sanitizedCmd.action.toLowerCase().includes("password")
-          ) {
-            sanitizedCmd.action = "[REDACTED]";
-          }
-          return sanitizedCmd;
-        });
+        const normalizeKey = (key: string) =>
+          key
+            .replace(/([a-z0-9])([A-Z])/g, "$1_$2") // camelCase to snake_case
+            .replace(/[\s-]+/g, "_") // spaces/hyphens to snake_case
+            .toLowerCase();
+
+        // 正規化後のキー（snake_case）と照合するパターン
+        const SENSITIVE_KEY_PATTERN =
+          /\b(pass(word)?|secret|token|api_key|authorization|auth(entication|orization)?|credential(s)?|cookie|set_cookie|session|csrf|client_secret|access_token|id_token|refresh_token)\b/;
+
+        const shouldRedactKey = (key: string) =>
+          SENSITIVE_KEY_PATTERN.test(normalizeKey(key));
+
+        const redact = (v: any): any => {
+          if (v === null || typeof v !== "object") return v;
+          if (Array.isArray(v)) return v.map((x) => redact(x));
+
+          return Object.fromEntries(
+            Object.entries(v).map(([k, val]) => [
+              k,
+              shouldRedactKey(k) ? "[REDACTED]" : redact(val),
+            ]),
+          );
+        };
+        const sanitizedCommands = result.commands.map((cmd) => redact(cmd));
 
         content += JSON.stringify(sanitizedCommands, null, 2);
         content += "\n  ```\n";

@@ -9,6 +9,7 @@ import { CommandLineInterface } from "./ui/cli.js";
 import fs from "fs/promises";
 import path from "path";
 import chalk from "chalk";
+import { ScenarioRecorder } from "./core/ScenarioRecorder.js";
 
 async function main() {
   const cli = new CommandLineInterface();
@@ -72,14 +73,15 @@ async function main() {
         // headlessモードかどうかでInspectorの案内を動的に変更
         const isHeadless = stagehandConfig.localBrowserLaunchOptions?.headless;
         const inspectorPrompt = isHeadless ? "" : ", Inspector: 'inspector'";
-        const promptMessage = `\nテストシナリオを入力してください (終了: 'exit'${inspectorPrompt}):\n> `;
+        const recordPrompt = ", 記録開始: 'record'";
+        const promptMessage = `\nテストシナリオを入力してください (終了: 'exit'${inspectorPrompt}${recordPrompt}):\n> `;
 
         const userInput = await cli.ask(chalk.bold(promptMessage));
 
         // 空行または空白のみの入力をチェック
         if (userInput.trim() === "") {
           cli.log(
-            "💡 空行です。シナリオ、または 'inspector' | 'exit' を入力してください。",
+            "💡 空行です。シナリオ、または 'inspector' | 'record' | 'exit' を入力してください。",
           );
           continue; // ループの先頭に戻り、再入力を促す
         }
@@ -88,6 +90,26 @@ async function main() {
 
         if (command === "exit") {
           break; // ループを終了
+        }
+
+        if (command === "record") {
+          cli.log(
+            chalk.magenta(
+              "⏺️ 記録モードを開始します。操作指示を入力してください。(保存: 'save', 中止: 'cancel')",
+            ),
+          );
+          try {
+            const recorder = new ScenarioRecorder(stagehand, cli);
+            const scenarioFilePath = await recorder.startRecording();
+            if (scenarioFilePath) {
+              // 成功メッセージはrecorder内で表示される
+            } else {
+              cli.log(chalk.yellow("記録はキャンセルされました。"));
+            }
+          } catch (e: any) {
+            cli.log(chalk.red(`記録モードでエラー: ${e.message ?? e}`));
+          }
+          continue; // 次のコマンド入力を待つ
         }
 
         // headlessモードでない場合のみinspectorコマンドを処理
