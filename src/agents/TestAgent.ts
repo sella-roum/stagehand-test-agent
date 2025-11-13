@@ -129,25 +129,95 @@ export class TestAgent {
    */
   private async planWhenStep(step: GherkinStep): Promise<ObserveResult> {
     return this.planWithSelfHealing(step, async (currentText) => {
+      // Gherkinizerの設計により、テーブル入力と他の操作（クリック等）は
+      // 別ステップに分離されていることが期待される。
+      // もしテーブルが存在する場合、既存のロジック（formFillerの実行）を優先する。
       if (step.table && step.table.length > 0) {
         await fillFormFromTable(this.stagehand, step.table);
       }
 
+      // 1. AIコールで「観察指示」と「操作種別」を同時に取得
       const { object: plan } = await generateObject({
         model: this.llm,
         schema: executorSchema,
         prompt: getExecutorPrompt(currentText),
       });
 
-      const observed = await this.stagehand.page.observe(
-        plan.observeInstruction,
-      );
+      // 2. 観察を実行
+      // [レビュー対応] { returnAction: true } を追加し、`method` を取得する
+      const observed = await this.stagehand.page.observe({
+        instruction: plan.observeInstruction,
+        returnAction: true,
+      });
       if (observed.length === 0) {
         throw new Error(
           `要素が見つかりませんでした: "${plan.observeInstruction}"`,
         );
       }
-      return observed[0]; // 計画としてObserveResultを返す
+
+      // 3. AIが判断した操作種別 (plan.intendedAction) に基づいてフィルタリング
+      const intendedAction = plan.intendedAction;
+      if (intendedAction !== "unknown" && observed.length > 1) {
+        // スクロール系メソッドのリスト
+        const SCROLL_METHODS = [
+          "scroll",
+          "scrollto",
+          "scrollintoview",
+          "scrollbypixeloffset",
+          "mouse.wheel",
+          "nextchunk",
+          "prevchunk",
+        ];
+
+        const filtered = observed.filter((obsResult) => {
+          // `obsResult.method` が undefined の可能性があるため、防御的に `?.toLowerCase()` を使用する
+          const method = obsResult.method?.toLowerCase();
+          if (!method) return false;
+
+          // AIの意図 (intendedAction) と
+          // Stagehandが返すメソッド (obsResult.method) をマッピングする
+          switch (intendedAction) {
+            case "click":
+              return method === "click";
+            case "double_click":
+              return method === "doubleclick" || method === "dblclick"; // dblclickもPlaywrightのメソッド
+            case "fill":
+              // Stagehandの入力系メソッドは 'fill' または 'type' と想定
+              return method === "fill" || method === "type";
+            case "press":
+              return method === "press";
+            case "select":
+              // 'selectOption' と 'selectOptionFromDropdown' の両方をカバー
+              return method.includes("select");
+            case "hover":
+              return method === "hover";
+            case "scroll":
+              return SCROLL_METHODS.includes(method);
+            case "drag":
+              return method === "draganddrop";
+            default:
+              return false;
+          }
+        });
+
+        if (filtered.length > 0) {
+          // フィルタリングされた結果の先頭を返す
+          return filtered[0];
+        }
+
+        // 警告ではなく、厳密にエラーをスローする
+        // フィルタリングしたが一致するものがなかった場合、エラーをスロー
+        throw new Error(
+          `AIの意図「${intendedAction}」に一致する要素が見つかりませんでした。` +
+            `Observeは ${observed.length} 件の要素を返しましたが、` +
+            `いずれも期待される method を持っていません。` +
+            `返された要素: ${observed.map((o) => o.method ?? "undefined").join(", ")}`,
+        );
+      }
+
+      // フィルタリング不要（unknown）、または元々候補が1つだった場合は、
+      // 従来通り先頭を返す
+      return observed[0];
     });
   }
 
@@ -216,9 +286,13 @@ export class TestAgent {
 
     // assertionTypeに応じて処理を分岐
     if (plan.assertionType === "element") {
-      const observed = await this.stagehand.page.observe(
-        plan.observeInstruction,
-      );
+      // [レビュー対応] { returnAction: true } を追加
+      // (verifyThenStep では method は使わないが、
+      //  observe の呼び出し箇所としてレビューで指摘されていたため、念のため統一する)
+      const observed = await this.stagehand.page.observe({
+        instruction: plan.observeInstruction,
+        returnAction: true,
+      });
       const elementExists = observed.length > 0;
 
       if (!elementExists) {
