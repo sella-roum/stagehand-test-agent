@@ -2,7 +2,7 @@
  * @file データテーブルに基づいてフォーム入力を実行するヘルパー機能。
  */
 import { Stagehand } from "@browserbasehq/stagehand";
-import { GherkinStep } from "../types/gherkin.js";
+import { GherkinStep } from "@/types/gherkin";
 
 /**
  * Gherkinステップに含まれるデータテーブルを解釈し、フォームの各フィールドに対応する値を入力します。

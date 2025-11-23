@@ -6,7 +6,7 @@ import {
   getGherkinizerPrompt,
   gherkinSchema,
   GherkinDocument,
-} from "../prompts/gherkinizer.js";
+} from "@/prompts/gherkinizer";
 
 /**
  * @class ScenarioNormalizerAgent

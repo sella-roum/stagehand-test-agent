@@ -2,8 +2,8 @@
  * @file 記録された操作履歴から自然言語シナリオを生成するAIエージェント。
  */
 import { LanguageModel, generateText } from "ai";
-import { getScenarioGeneratorPrompt } from "../prompts/scenarioGenerator.js";
-import { RecordedStep } from "../types/recorder.js";
+import { getScenarioGeneratorPrompt } from "@/prompts/scenarioGenerator";
+import { RecordedStep } from "@/types/recorder";
 
 export class ScenarioGeneratorAgent {
   private llm: LanguageModel;

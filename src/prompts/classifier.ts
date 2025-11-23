@@ -2,7 +2,7 @@
  * @file ユーザー指示の意図を分類するエージェントが使用するプロンプトとスキーマを定義します。
  */
 import { z } from "zod";
-import { StepIntent } from "../types/recorder.js";
+import { StepIntent } from "@/types/recorder";
 
 /**
  * @schema instructionClassificationSchema

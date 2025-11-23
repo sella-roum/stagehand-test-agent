@@ -2,16 +2,16 @@
  * @file テスト実行のワークフロー全体を統括するオーケストレーター。
  */
 import { Stagehand } from "@browserbasehq/stagehand";
-import { ExecutionContext } from "./ExecutionContext.js";
-import { CommandLineInterface } from "../ui/cli.js";
-import { ScenarioNormalizerAgent } from "../agents/ScenarioNormalizerAgent.js";
-import { TestAgent } from "../agents/TestAgent.js";
-import { getLlm } from "../lib/llm/provider.js";
-import { GherkinStep } from "../types/gherkin.js";
+import { ExecutionContext } from "@/core/ExecutionContext";
+import { CommandLineInterface } from "@/ui/cli";
+import { ScenarioNormalizerAgent } from "@/agents/ScenarioNormalizerAgent";
+import { TestAgent } from "@/agents/TestAgent";
+import { getLlm } from "@/lib/llm/provider";
+import { GherkinStep } from "@/types/gherkin";
 import fs from "fs/promises";
 import path from "path";
 import chalk from "chalk";
-import { StepIntent } from "../types/recorder.js";
+import { StepIntent } from "@/types/recorder";
 
 /**
  * @class TestOrchestrator
@@ -63,6 +63,7 @@ export class TestOrchestrator {
     await fs.mkdir(reportDir, { recursive: true });
     const tracePath = path.join(reportDir, `trace-${Date.now()}.zip`);
 
+    // ログリスナーの定義
     const consoleHandler = (msg: any) => {
       if (["error", "warning"].includes(msg.type())) {
         this.context.addConsoleLog(msg.type(), msg.text());
@@ -87,13 +88,19 @@ export class TestOrchestrator {
       }
     };
 
+    // トレース開始状態を管理するフラグ
+    let tracingStarted = false;
+
     try {
+      // トレース開始を試行
       await this.stagehand.page.context().tracing.start({
         screenshots: true,
         snapshots: true,
         sources: true,
       });
+      tracingStarted = true;
 
+      // リスナー登録
       this.stagehand.page.on("console", consoleHandler);
       this.stagehand.page.on("requestfailed", requestFailedHandler);
       this.stagehand.page.on("response", responseHandler);
@@ -147,12 +154,24 @@ export class TestOrchestrator {
         ),
       );
     } finally {
+      // リスナー解除
       this.stagehand.page.off("console", consoleHandler);
       this.stagehand.page.off("requestfailed", requestFailedHandler);
       this.stagehand.page.off("response", responseHandler);
 
-      await this.stagehand.page.context().tracing.stop({ path: tracePath });
-      this.cli.log(chalk.gray(`\n🕵️ Trace saved: ${tracePath}`));
+      // トレースが正常に開始されていた場合のみ保存処理を行う
+      if (tracingStarted) {
+        try {
+          await this.stagehand.page.context().tracing.stop({ path: tracePath });
+          this.cli.log(chalk.gray(`\n🕵️ Trace saved: ${tracePath}`));
+        } catch (traceError) {
+          console.warn(
+            chalk.yellow(
+              `⚠️ トレースの保存に失敗しました: ${(traceError as Error).message}`,
+            ),
+          );
+        }
+      }
 
       this.cli.logReport(this.context.stepResults);
       await this.generateReport();

@@ -49,7 +49,31 @@ export const verifierSchema = z.discriminatedUnion("assertionType", [
             .optional()
             .describe("value_equalsの場合の期待値。"),
         })
-        .strict(),
+        .strict()
+        .superRefine((value, ctx) => {
+          if (
+            value.check === "value_equals" &&
+            value.expectedValue === undefined
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message:
+                "check が value_equals の場合は expectedValue を必ず指定してください。",
+              path: ["expectedValue"],
+            });
+          }
+          if (
+            value.check !== "value_equals" &&
+            value.expectedValue !== undefined
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message:
+                "value_equals 以外では expectedValue を指定しないでください。",
+              path: ["expectedValue"],
+            });
+          }
+        }),
     })
     .strict(),
 ]);

@@ -63,7 +63,7 @@ export class ExecutionContext {
    * メモリ圧迫を防ぐため、直近100件のみ保持します。
    */
   addConsoleLog(type: string, text: string) {
-    if (this.consoleLogs.length > 100) this.consoleLogs.shift();
+    if (this.consoleLogs.length >= 100) this.consoleLogs.shift();
     this.consoleLogs.push(`[${type}] ${text}`);
   }
 
@@ -72,7 +72,7 @@ export class ExecutionContext {
    * メモリ圧迫を防ぐため、直近50件のみ保持します。
    */
   addNetworkError(url: string, status: number, statusText: string) {
-    if (this.networkErrors.length > 50) this.networkErrors.shift();
+    if (this.networkErrors.length >= 50) this.networkErrors.shift();
     this.networkErrors.push(`[${status} ${statusText}] ${url}`);
   }
 

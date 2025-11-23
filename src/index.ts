@@ -2,14 +2,14 @@
  * @file プロジェクトのエントリーポイント。
  */
 import { Stagehand } from "@browserbasehq/stagehand";
-import { createStagehandConfig } from "../stagehand.config.js";
-import { ExecutionContext, ExecutionMode } from "./core/ExecutionContext.js";
-import { TestOrchestrator } from "./core/TestOrchestrator.js";
-import { CommandLineInterface } from "./ui/cli.js";
+import { createStagehandConfig } from "../stagehand.config";
+import { ExecutionContext, ExecutionMode } from "@/core/ExecutionContext";
+import { TestOrchestrator } from "@/core/TestOrchestrator";
+import { CommandLineInterface } from "@/ui/cli";
 import fs from "fs/promises";
 import path from "path";
 import chalk from "chalk";
-import { ScenarioRecorder } from "./core/ScenarioRecorder.js";
+import { ScenarioRecorder } from "@/core/ScenarioRecorder";
 
 async function main() {
   const cli = new CommandLineInterface();

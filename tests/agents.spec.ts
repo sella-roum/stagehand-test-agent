@@ -6,10 +6,10 @@
  */
 import { test, expect } from "@playwright/test";
 import { Stagehand } from "@browserbasehq/stagehand";
-import { createStagehandConfig } from "../stagehand.config.js";
-import { ExecutionContext } from "../src/core/ExecutionContext.js";
-import { TestOrchestrator } from "../src/core/TestOrchestrator.js";
-import { CommandLineInterface } from "../src/ui/cli.js";
+import { createStagehandConfig } from "../stagehand.config";
+import { ExecutionContext } from "@/core/ExecutionContext";
+import { TestOrchestrator } from "@/core/TestOrchestrator";
+import { CommandLineInterface } from "@/ui/cli";
 import fs from "fs/promises";
 import path from "path";
 

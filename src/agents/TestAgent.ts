@@ -7,16 +7,13 @@ import {
   ObserveResult,
   ExtractResult,
 } from "@browserbasehq/stagehand";
-import { getExecutorPrompt, executorSchema } from "../prompts/executor.js";
-import { getVerifierPrompt, verifierSchema } from "../prompts/verifier.js";
-import {
-  getSelfHealingPrompt,
-  selfHealingSchema,
-} from "../prompts/selfHealing.js";
-import { GherkinStep } from "../types/gherkin.js";
-import { fillFormFromTable } from "./formFiller.js";
+import { getExecutorPrompt, executorSchema } from "@/prompts/executor";
+import { getVerifierPrompt, verifierSchema } from "@/prompts/verifier";
+import { getSelfHealingPrompt, selfHealingSchema } from "@/prompts/selfHealing";
+import { GherkinStep } from "@/types/gherkin";
+import { fillFormFromTable } from "@/agents/formFiller";
 import { z } from "zod";
-import { ExecutionContext } from "../core/ExecutionContext.js";
+import { ExecutionContext } from "@/core/ExecutionContext";
 
 /**
  * 複数の形式で返される可能性があるExtractResultから、主要なテキストコンテンツを安全に抽出します。
