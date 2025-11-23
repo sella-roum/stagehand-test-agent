@@ -42,6 +42,8 @@ export class ExecutionContext {
   public originalScenario: string;
   public gherkinDocument: GherkinDocument | null = null;
   public stepResults: TestStepResult[] = [];
+  public consoleLogs: string[] = [];
+  public networkErrors: string[] = [];
 
   constructor(mode: ExecutionMode, scenario: string) {
     this.mode = mode;
@@ -57,6 +59,24 @@ export class ExecutionContext {
   }
 
   /**
+   * コンソールログを追加します。
+   * メモリ圧迫を防ぐため、直近100件のみ保持します。
+   */
+  addConsoleLog(type: string, text: string) {
+    if (this.consoleLogs.length > 100) this.consoleLogs.shift();
+    this.consoleLogs.push(`[${type}] ${text}`);
+  }
+
+  /**
+   * ネットワークエラーログを追加します。
+   * メモリ圧迫を防ぐため、直近50件のみ保持します。
+   */
+  addNetworkError(url: string, status: number, statusText: string) {
+    if (this.networkErrors.length > 50) this.networkErrors.shift();
+    this.networkErrors.push(`[${status} ${statusText}] ${url}`);
+  }
+
+  /**
    * 新しいテストシナリオのためにコンテキストをリセットします。
    * @param {string} newScenario - 新しいシナリオのテキスト。
    */
@@ -64,5 +84,7 @@ export class ExecutionContext {
     this.originalScenario = newScenario;
     this.gherkinDocument = null;
     this.stepResults = [];
+    this.consoleLogs = [];
+    this.networkErrors = [];
   }
 }

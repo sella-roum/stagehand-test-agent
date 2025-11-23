@@ -12,6 +12,7 @@ import { getLlm } from "../lib/llm/provider.js";
 import path from "path";
 import fs from "fs/promises";
 import chalk from "chalk";
+import { ExecutionContext } from "./ExecutionContext.js";
 
 export class ScenarioRecorder {
   private stagehand: Stagehand;
@@ -25,11 +26,16 @@ export class ScenarioRecorder {
     this.stagehand = stagehand;
     this.cli = cli;
     this.classifierAgent = new InstructionClassifierAgent(getLlm("fast"));
-    // TestAgentを初期化して、検証ロジックを再利用できるようにする
+
+    const dummyContext = new ExecutionContext(
+      "interactive",
+      "Recording Session",
+    );
     this.testAgent = new TestAgent(
       getLlm("fast"),
       getLlm("default"),
       this.stagehand,
+      dummyContext,
     );
     this.generatorAgent = new ScenarioGeneratorAgent(getLlm("default"));
   }

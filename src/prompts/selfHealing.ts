@@ -15,11 +15,12 @@ export const selfHealingSchema = z.object({
 export function getSelfHealingPrompt(
   failedStep: string,
   error: Error,
-  pageContent: string,
+  accessibilityTree: string,
+  logs: string,
 ): string {
   return `
 あなたは、ブラウザテストのデバッグを行うエキスパートAIです。
-テスト実行中に以下のエラーが発生しました。原因を分析し、テストを続行するための代替アクションを提案してください。
+テスト実行中に以下のエラーが発生しました。提供された情報を元に原因を分析し、テストを続行するための代替アクションを提案してください。
 
 # 失敗したステップ
 "${failedStep}"
@@ -29,14 +30,20 @@ export function getSelfHealingPrompt(
 ${error.name}: ${error.message}
 \`\`\`
 
-# エラー発生時のページ内容の要約
+# ブラウザログとネットワークエラー
 \`\`\`
-${pageContent.substring(0, 2000)}...
+${logs}
+\`\`\`
+
+# エラー発生時の画面構造 (Accessibility Tree)
+\`\`\`json
+${accessibilityTree}
 \`\`\`
 
 # あなたのタスク
-1.  エラーの原因を分析してください。特に'ElementNotFoundError'や'Timeout'エラーは、要素のセレクタが間違っているか、ページがまだ読み込み中、または要素が画面外にある可能性を示唆しています。
-2.  ページ内容の要約をヒントに、元の意図（"${failedStep}"）を達成するための、より具体的で堅牢な新しい指示を考案してください。
+1.  コンソールログやネットワークエラーを確認し、APIエラー(500)やJSエラーが操作不能の原因になっていないか分析してください。
+2.  アクセシビリティツリーを分析し、対象要素が本当に存在するか、名前(name)や役割(role)が想定通りか、disabled状態でないかを確認してください。
+3.  エラーの原因を特定し、元の意図（"${failedStep}"）を達成するための、より具体的で堅牢な新しい指示を考案してください。
 
 # 指示の例
 - より詳細な説明を使う: "「メインコンテンツエリアにある青い送信ボタン」をクリック"
