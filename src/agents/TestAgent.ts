@@ -7,15 +7,13 @@ import {
   ObserveResult,
   ExtractResult,
 } from "@browserbasehq/stagehand";
-import { getExecutorPrompt, executorSchema } from "../prompts/executor.js";
-import { getVerifierPrompt, verifierSchema } from "../prompts/verifier.js";
-import {
-  getSelfHealingPrompt,
-  selfHealingSchema,
-} from "../prompts/selfHealing.js";
-import { GherkinStep } from "../types/gherkin.js";
-import { fillFormFromTable } from "./formFiller.js";
+import { getExecutorPrompt, executorSchema } from "@/prompts/executor";
+import { getVerifierPrompt, verifierSchema } from "@/prompts/verifier";
+import { getSelfHealingPrompt, selfHealingSchema } from "@/prompts/selfHealing";
+import { GherkinStep } from "@/types/gherkin";
+import { fillFormFromTable } from "@/agents/formFiller";
 import { z } from "zod";
+import { ExecutionContext } from "@/core/ExecutionContext";
 
 /**
  * 複数の形式で返される可能性があるExtractResultから、主要なテキストコンテンツを安全に抽出します。
@@ -40,21 +38,25 @@ export class TestAgent {
   private llm: LanguageModel;
   private stagehand: Stagehand;
   private selfHealingLlm: LanguageModel;
+  private context: ExecutionContext;
 
   /**
    * TestAgentのインスタンスを生成します。
    * @param {LanguageModel} fastLlm - 通常の計画立案に使用する、高速・安価なLLM。
    * @param {LanguageModel} defaultLlm - 自己修復など、より高度な推論が求められるタスクに使用する高性能なLLM。
    * @param {Stagehand} stagehand - ブラウザ操作を実行するためのStagehandインスタンス。
+   * @param {ExecutionContext} context - テスト実行のコンテキスト。
    */
   constructor(
     fastLlm: LanguageModel,
     defaultLlm: LanguageModel,
     stagehand: Stagehand,
+    context: ExecutionContext,
   ) {
     this.llm = fastLlm;
     this.selfHealingLlm = defaultLlm;
     this.stagehand = stagehand;
+    this.context = context;
   }
 
   /**
@@ -72,7 +74,6 @@ export class TestAgent {
     if (keyword.includes("given")) {
       return this.planGivenStep(step);
     }
-    // "And"は正規化エージェントによって"When"か"Then"に解決されることを前提とする
     if (keyword.includes("when")) {
       return this.planWhenStep(step);
     }
@@ -102,7 +103,6 @@ export class TestAgent {
     const expectedUrl = urlMatch ? urlMatch[0] : null;
 
     if (expectedUrl) {
-      // URL遷移はエージェントが直接実行する
       await this.stagehand.page.goto(expectedUrl, { timeout: 30000 });
       await this.stagehand.page.waitForLoadState("domcontentloaded", {
         timeout: 15000,
@@ -114,9 +114,8 @@ export class TestAgent {
         );
       }
       console.log(`  ✅ URL検証成功: ${currentUrl}`);
-      return; // URL遷移は直接実行したので計画は返さない
+      return;
     } else {
-      // URL以外のGivenはWhenと同様に操作計画を立てる
       return this.planWhenStep(step);
     }
   }
@@ -129,22 +128,16 @@ export class TestAgent {
    */
   private async planWhenStep(step: GherkinStep): Promise<ObserveResult> {
     return this.planWithSelfHealing(step, async (currentText) => {
-      // Gherkinizerの設計により、テーブル入力と他の操作（クリック等）は
-      // 別ステップに分離されていることが期待される。
-      // もしテーブルが存在する場合、既存のロジック（formFillerの実行）を優先する。
       if (step.table && step.table.length > 0) {
         await fillFormFromTable(this.stagehand, step.table);
       }
 
-      // 1. AIコールで「観察指示」と「操作種別」を同時に取得
       const { object: plan } = await generateObject({
         model: this.llm,
         schema: executorSchema,
         prompt: getExecutorPrompt(currentText),
       });
 
-      // 2. 観察を実行
-      // [レビュー対応] { returnAction: true } を追加し、`method` を取得する
       const observed = await this.stagehand.page.observe({
         instruction: plan.observeInstruction,
         returnAction: true,
@@ -155,10 +148,8 @@ export class TestAgent {
         );
       }
 
-      // 3. AIが判断した操作種別 (plan.intendedAction) に基づいてフィルタリング
       const intendedAction = plan.intendedAction;
       if (intendedAction !== "unknown" && observed.length > 1) {
-        // スクロール系メソッドのリスト
         const SCROLL_METHODS = [
           "scroll",
           "scrollto",
@@ -170,24 +161,19 @@ export class TestAgent {
         ];
 
         const filtered = observed.filter((obsResult) => {
-          // `obsResult.method` が undefined の可能性があるため、防御的に `?.toLowerCase()` を使用する
           const method = obsResult.method?.toLowerCase();
           if (!method) return false;
 
-          // AIの意図 (intendedAction) と
-          // Stagehandが返すメソッド (obsResult.method) をマッピングする
           switch (intendedAction) {
             case "click":
               return method === "click";
             case "double_click":
-              return method === "doubleclick" || method === "dblclick"; // dblclickもPlaywrightのメソッド
+              return method === "doubleclick" || method === "dblclick";
             case "fill":
-              // Stagehandの入力系メソッドは 'fill' または 'type' と想定
               return method === "fill" || method === "type";
             case "press":
               return method === "press";
             case "select":
-              // 'selectOption' と 'selectOptionFromDropdown' の両方をカバー
               return method.includes("select");
             case "hover":
               return method === "hover";
@@ -201,22 +187,14 @@ export class TestAgent {
         });
 
         if (filtered.length > 0) {
-          // フィルタリングされた結果の先頭を返す
           return filtered[0];
         }
 
-        // 警告ではなく、厳密にエラーをスローする
-        // フィルタリングしたが一致するものがなかった場合、エラーをスロー
         throw new Error(
-          `AIの意図「${intendedAction}」に一致する要素が見つかりませんでした。` +
-            `Observeは ${observed.length} 件の要素を返しましたが、` +
-            `いずれも期待される method を持っていません。` +
-            `返された要素: ${observed.map((o) => o.method ?? "undefined").join(", ")}`,
+          `AIの意図「${intendedAction}」に一致する要素が見つかりませんでした。`,
         );
       }
 
-      // フィルタリング不要（unknown）、または元々候補が1つだった場合は、
-      // 従来通り先頭を返す
       return observed[0];
     });
   }
@@ -228,7 +206,6 @@ export class TestAgent {
    * @private
    */
   private async verifyThenStep(step: GherkinStep): Promise<boolean> {
-    // --- データテーブルが存在する場合の検証ロジック ---
     if (step.table && step.table.length > 0) {
       console.log("  ...データテーブルに基づいて検証を開始します。");
       const keys = Object.keys(step.table[0]);
@@ -277,41 +254,68 @@ export class TestAgent {
       return true;
     }
 
-    // --- 通常のテキストまたは要素の検証ロジック ---
     const { object: plan } = await generateObject({
       model: this.llm,
       schema: verifierSchema,
       prompt: getVerifierPrompt(step.text),
     });
 
-    // assertionTypeに応じて処理を分岐
-    if (plan.assertionType === "element") {
-      // [レビュー対応] { returnAction: true } を追加
-      // (verifyThenStep では method は使わないが、
-      //  observe の呼び出し箇所としてレビューで指摘されていたため、念のため統一する)
+    if (plan.assertionType === "element_state") {
       const observed = await this.stagehand.page.observe({
         instruction: plan.observeInstruction,
         returnAction: true,
       });
-      const elementExists = observed.length > 0;
 
-      if (!elementExists) {
+      if (observed.length === 0) {
+        if (plan.assertion.check === "not_exists") return true;
         console.error(
           `要素が見つかりませんでした: "${plan.observeInstruction}"`,
         );
+        return false;
       }
 
-      switch (plan.assertion.operator) {
-        case "toExist":
-          return elementExists;
-        case "notToExist":
-          return !elementExists;
-        default:
-          // スキーマで網羅されているため、ここは通らないはず
-          return false;
+      const target = observed[0] as ObserveResult & { xpath?: string };
+      const selector =
+        target.selector || (target.xpath ? `xpath=${target.xpath}` : null);
+
+      if (!selector) {
+        console.error("要素は特定できましたが、セレクタの取得に失敗しました。");
+        return false;
+      }
+
+      const locator = this.stagehand.page.locator(selector).first();
+
+      try {
+        switch (plan.assertion.check) {
+          case "exists":
+            return (await locator.count()) > 0;
+          case "not_exists":
+            return (await locator.count()) === 0;
+          case "visible":
+            return await locator.isVisible();
+          case "hidden":
+            return await locator.isHidden();
+          case "enabled":
+            return await locator.isEnabled();
+          case "disabled":
+            return await locator.isDisabled();
+          case "checked":
+            return await locator.isChecked();
+          case "unchecked":
+            return !(await locator.isChecked());
+          case "value_equals": {
+            // ブロックで囲んでno-case-declarationsエラーを回避
+            const val = await locator.inputValue();
+            return val === plan.assertion.expectedValue;
+          }
+          default:
+            return false;
+        }
+      } catch (e) {
+        console.error(`検証実行中にエラー: ${(e as Error).message}`);
+        return false;
       }
     } else {
-      // 既存のテキスト検証ロジック
       const result = await this.stagehand.page.extract({
         instruction: plan.extractInstruction,
       });
@@ -325,7 +329,6 @@ export class TestAgent {
         case "toEqual":
           return actual === plan.assertion.expected;
         default:
-          // スキーマで網羅されているため、ここは通らないはず
           return false;
       }
     }
@@ -346,7 +349,6 @@ export class TestAgent {
     let lastError: Error | null = null;
     let currentText = originalStep.text;
 
-    // 自己修復ループ：最大リトライ回数 = 2 (合計3回試行)
     for (let i = 0; i <= 2; i++) {
       try {
         const plan = await planner(currentText);
@@ -362,10 +364,24 @@ export class TestAgent {
             console.error("エラーオブジェクトが存在しません。");
             continue;
           }
-          const pageContentResult = await this.stagehand.page.extract({
-            instruction: "ページ全体のテキストを抽出してください",
-          });
-          const pageContent = getSafeTextFromResult(pageContentResult);
+
+          let accessibilityTree = "取得失敗";
+          try {
+            const snapshot = await this.stagehand.page.accessibility.snapshot();
+            accessibilityTree = JSON.stringify(snapshot, null, 2);
+          } catch (e) {
+            accessibilityTree = `アクセシビリティ情報の取得に失敗: ${
+              (e as Error).message
+            }`;
+          }
+
+          const logs = `
+Console Logs (Last 5):
+${this.context.consoleLogs.slice(-5).join("\n") || "None"}
+
+Network Errors (Last 5):
+${this.context.networkErrors.slice(-5).join("\n") || "None"}
+`;
 
           const { object: healingPlan } = await generateObject({
             model: this.selfHealingLlm,
@@ -373,7 +389,8 @@ export class TestAgent {
             prompt: getSelfHealingPrompt(
               originalStep.text,
               lastError,
-              pageContent,
+              accessibilityTree,
+              logs,
             ),
           });
           console.log(`   分析: ${healingPlan.causeAnalysis}`);

@@ -1,7 +1,7 @@
 /**
  * @file シナリオ正規化エージェントが使用するプロンプトとスキーマを定義します。
  */
-import { gherkinSchema, GherkinDocument } from "../types/gherkin.js";
+import { gherkinSchema, GherkinDocument } from "@/types/gherkin";
 
 // GherkinDocument型をエクスポートして他のファイルで使えるようにする
 export type { GherkinDocument };

@@ -2,10 +2,10 @@
  * @file コマンドラインインターフェースの表示を担当。
  */
 import chalk from "chalk";
-import { TestStepResult } from "../core/ExecutionContext.js";
+import { TestStepResult } from "@/core/ExecutionContext";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import type { StepIntent } from "../types/recorder.js";
+import type { StepIntent } from "@/types/recorder";
 
 export class CommandLineInterface {
   private rl: readline.Interface;

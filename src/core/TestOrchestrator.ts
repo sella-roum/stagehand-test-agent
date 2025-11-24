@@ -2,16 +2,16 @@
  * @file テスト実行のワークフロー全体を統括するオーケストレーター。
  */
 import { Stagehand } from "@browserbasehq/stagehand";
-import { ExecutionContext } from "./ExecutionContext.js";
-import { CommandLineInterface } from "../ui/cli.js";
-import { ScenarioNormalizerAgent } from "../agents/ScenarioNormalizerAgent.js";
-import { TestAgent } from "../agents/TestAgent.js";
-import { getLlm } from "../lib/llm/provider.js";
-import { GherkinStep } from "../types/gherkin.js";
+import { ExecutionContext } from "@/core/ExecutionContext";
+import { CommandLineInterface } from "@/ui/cli";
+import { ScenarioNormalizerAgent } from "@/agents/ScenarioNormalizerAgent";
+import { TestAgent } from "@/agents/TestAgent";
+import { getLlm } from "@/lib/llm/provider";
+import { GherkinStep } from "@/types/gherkin";
 import fs from "fs/promises";
 import path from "path";
 import chalk from "chalk";
-import { StepIntent } from "../types/recorder.js";
+import { StepIntent } from "@/types/recorder";
 
 /**
  * @class TestOrchestrator
@@ -44,21 +44,67 @@ export class TestOrchestrator {
       getLlm("fast"),
       getLlm("default"),
       this.stagehand,
+      this.context,
     );
   }
 
   /**
    * テスト実行のメインフローを開始します。
    * 実行フロー：
-   * 1. シナリオをGherkin形式に正規化
-   * 2. (対話モード時) ユーザーに実行計画を承認させる
-   * 3. Gherkinの各ステップを順番に実行
-   * 4. 最終的なテストレポートを生成
+   * 1. トレースとログ監視の開始
+   * 2. シナリオをGherkin形式に正規化
+   * 3. (対話モード時) ユーザーに実行計画を承認させる
+   * 4. Gherkinの各ステップを順番に実行
+   * 5. トレースの保存と最終的なテストレポートを生成
    * @returns {Promise<void>}
    */
   async run(): Promise<void> {
+    const reportDir = path.resolve(process.cwd(), "test-results");
+    await fs.mkdir(reportDir, { recursive: true });
+    const tracePath = path.join(reportDir, `trace-${Date.now()}.zip`);
+
+    // ログリスナーの定義
+    const consoleHandler = (msg: any) => {
+      if (["error", "warning"].includes(msg.type())) {
+        this.context.addConsoleLog(msg.type(), msg.text());
+      }
+    };
+    const requestFailedHandler = (request: any) => {
+      if (request.failure()) {
+        this.context.addNetworkError(
+          request.url(),
+          0,
+          request.failure()?.errorText || "Failed",
+        );
+      }
+    };
+    const responseHandler = (response: any) => {
+      if (response.status() >= 400) {
+        this.context.addNetworkError(
+          response.url(),
+          response.status(),
+          response.statusText(),
+        );
+      }
+    };
+
+    // トレース開始状態を管理するフラグ
+    let tracingStarted = false;
+
     try {
-      // --- 1. シナリオ正規化 ---
+      // トレース開始を試行
+      await this.stagehand.page.context().tracing.start({
+        screenshots: true,
+        snapshots: true,
+        sources: true,
+      });
+      tracingStarted = true;
+
+      // リスナー登録
+      this.stagehand.page.on("console", consoleHandler);
+      this.stagehand.page.on("requestfailed", requestFailedHandler);
+      this.stagehand.page.on("response", responseHandler);
+
       this.cli.log(
         `📝 シナリオを正規化中...\n"${this.context.originalScenario}"`,
       );
@@ -83,7 +129,6 @@ export class TestOrchestrator {
       });
       this.cli.log(chalk.bold.blue("--------------------------"));
 
-      // --- 2. 計画承認 (対話モード時) ---
       if (this.context.mode.startsWith("interactive")) {
         const proceed =
           await this.cli.confirm("この計画でテストを実行しますか？");
@@ -93,7 +138,6 @@ export class TestOrchestrator {
         }
       }
 
-      // --- 3. ステップ実行 ---
       if (gherkinDocument.background) {
         for (const step of gherkinDocument.background) {
           await this.executeStep(step);
@@ -104,14 +148,31 @@ export class TestOrchestrator {
         await this.executeStep(step);
       }
     } catch (error) {
-      // メイン処理で発生したエラーを捕捉し、ログに出力
       console.error(
         chalk.red(
           `\n❌ テスト実行中にエラーが発生しました: ${(error as Error).message}`,
         ),
       );
     } finally {
-      // --- 4. レポート生成 (成功・失敗に関わらず必ず実行) ---
+      // リスナー解除
+      this.stagehand.page.off("console", consoleHandler);
+      this.stagehand.page.off("requestfailed", requestFailedHandler);
+      this.stagehand.page.off("response", responseHandler);
+
+      // トレースが正常に開始されていた場合のみ保存処理を行う
+      if (tracingStarted) {
+        try {
+          await this.stagehand.page.context().tracing.stop({ path: tracePath });
+          this.cli.log(chalk.gray(`\n🕵️ Trace saved: ${tracePath}`));
+        } catch (traceError) {
+          console.warn(
+            chalk.yellow(
+              `⚠️ トレースの保存に失敗しました: ${(traceError as Error).message}`,
+            ),
+          );
+        }
+      }
+
       this.cli.logReport(this.context.stepResults);
       await this.generateReport();
     }
@@ -126,9 +187,7 @@ export class TestOrchestrator {
     const fullStep = `${step.keyword} ${step.text}`;
     this.cli.logStepStart(fullStep);
 
-    // キーワードに基づいて意図を判断し、ログに出力
     const keyword = step.keyword.toLowerCase();
-    // 前提: 正規化済みで And は前段階の種別に展開されている想定
     const intent: StepIntent =
       keyword.includes("then") || keyword.includes("and")
         ? "assertion"
@@ -140,7 +199,6 @@ export class TestOrchestrator {
     let details: string | undefined;
     let screenshotPath: string | undefined;
 
-    // このステップで実行されたStagehandの内部コマンドのみを抽出するための開始インデックス
     const historyStartIndex = this.stagehand.history.length;
 
     try {
@@ -151,25 +209,19 @@ export class TestOrchestrator {
         }
       }
 
-      // TestAgentから計画を受け取り、Orchestratorが実行する
       const plan = await this.testAgent.processStep(step);
 
       if (typeof plan === "object" && plan !== null && "method" in plan) {
-        // planがObserveResultの場合、actを実行
         await this.stagehand.page.act(plan);
       } else if (typeof plan === "boolean" && !plan) {
-        // planがfalseの場合 (Then句の検証失敗)
         throw new Error(`検証ステップ「${step.text}」が失敗しました。`);
       }
-      // planがvoid(GivenのURL遷移)またはtrue(Thenの検証成功)の場合は何もしない
 
       status = "pass";
     } catch (e: any) {
       status = "fail";
       details = e.message;
       try {
-        // メインのエラー処理中にスクリーンショット撮影で失敗しても、
-        // テスト全体がクラッシュしないようにするための安全策
         const screenshotDir = path.resolve(process.cwd(), "test-results");
         await fs.mkdir(screenshotDir, { recursive: true });
         screenshotPath = path.join(screenshotDir, `failure-${Date.now()}.png`);
@@ -181,7 +233,6 @@ export class TestOrchestrator {
 
     const durationMs = Date.now() - startTime;
     const historyEndIndex = this.stagehand.history.length;
-    // このステップで実行されたコマンド履歴を抽出
     const commands = this.stagehand.history.slice(
       historyStartIndex,
       historyEndIndex,
@@ -213,7 +264,6 @@ export class TestOrchestrator {
 
     let content = `# テストレポート\n\n`;
 
-    // 1. 正規化されたテスト計画をレポートに追加
     if (this.context.gherkinDocument) {
       content += `## テスト計画\n\n`;
       content += `**Feature**: ${this.context.gherkinDocument.feature}\n`;
@@ -234,12 +284,10 @@ export class TestOrchestrator {
       }
 
       if (hasScenario) {
-        // `scenarios`は配列なので、最初の要素`[0]`にアクセスする
         this.context.gherkinDocument.scenarios[0].steps.forEach(
           (step: GherkinStep) => {
             content += `${step.keyword} ${step.text}\n`;
             if (step.table && step.table.length > 0) {
-              // テーブルのヘッダーを取得 (最初の行からキーを取得)
               const headers = Object.keys(step.table[0]);
               content += `  | ${headers.join(" | ")} |\n`;
               content += `  | ${headers.map(() => "---").join(" | ")} |\n`;
@@ -256,12 +304,10 @@ export class TestOrchestrator {
       content += "```\n\n";
     }
 
-    // 2. 実行結果セクションを追加
     content += `## 実行結果\n\n`;
 
     for (const result of this.context.stepResults) {
       const icon = result.status === "pass" ? "✅" : "❌";
-      // ヘッダーレベルをH3に変更して階層を明確化
       content += `### ${icon} ${result.step}\n`;
       content += `- **結果**: ${result.status}\n`;
       content += `- **実行時間**: ${result.durationMs}ms\n`;
@@ -279,11 +325,10 @@ export class TestOrchestrator {
 
         const normalizeKey = (key: string) =>
           key
-            .replace(/([a-z0-9])([A-Z])/g, "$1_$2") // camelCase to snake_case
-            .replace(/[\s-]+/g, "_") // spaces/hyphens to snake_case
+            .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+            .replace(/[\s-]+/g, "_")
             .toLowerCase();
 
-        // 正規化後のキー（snake_case）と照合するパターン
         const SENSITIVE_KEY_PATTERN =
           /\b(pass(word)?|secret|token|api_key|authorization|auth(entication|orization)?|credential(s)?|cookie|set_cookie|session|csrf|client_secret|access_token|id_token|refresh_token)\b/;
 

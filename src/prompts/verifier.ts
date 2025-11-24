@@ -4,7 +4,17 @@
 import { z } from "zod";
 
 const textOperatorSchema = z.enum(["toContain", "notToContain", "toEqual"]);
-const elementOperatorSchema = z.enum(["toExist", "notToExist"]);
+const stateCheckSchema = z.enum([
+  "exists",
+  "not_exists",
+  "visible",
+  "hidden",
+  "enabled",
+  "disabled",
+  "checked",
+  "unchecked",
+  "value_equals",
+]);
 
 export const verifierSchema = z.discriminatedUnion("assertionType", [
   z
@@ -21,24 +31,49 @@ export const verifierSchema = z.discriminatedUnion("assertionType", [
           operator: textOperatorSchema,
         })
         .strict(),
-      observeInstruction: z.never().optional(), // 混在防止
     })
     .strict(),
   z
     .object({
-      assertionType: z.literal("element"),
+      assertionType: z.literal("element_state"),
       observeInstruction: z
         .string()
         .describe(
-          "assertionTypeが'element'の場合に、存在を確認する要素を見つけるための指示。",
+          "assertionTypeが'element_state'の場合に、検証対象の要素を見つけるための指示。",
         ),
       assertion: z
         .object({
-          expected: z.string().optional().default(""),
-          operator: elementOperatorSchema,
+          check: stateCheckSchema.describe("検証する状態の種類。"),
+          expectedValue: z
+            .string()
+            .optional()
+            .describe("value_equalsの場合の期待値。"),
         })
-        .strict(),
-      extractInstruction: z.never().optional(), // 混在防止
+        .strict()
+        .superRefine((value, ctx) => {
+          if (
+            value.check === "value_equals" &&
+            value.expectedValue === undefined
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message:
+                "check が value_equals の場合は expectedValue を必ず指定してください。",
+              path: ["expectedValue"],
+            });
+          }
+          if (
+            value.check !== "value_equals" &&
+            value.expectedValue !== undefined
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message:
+                "value_equals 以外では expectedValue を指定しないでください。",
+              path: ["expectedValue"],
+            });
+          }
+        }),
     })
     .strict(),
 ]);
@@ -50,21 +85,19 @@ export function getVerifierPrompt(thenStep: string): string {
 必ず有効なJSONのみを出力してください。コードフェンス(\`\`\`)やコメント、説明文は出力しないでください。キーはダブルクォートで囲みます。
 
 # あなたのタスク
-ユーザーの'Then'ステップの意図を分析し、以下の2種類の検証のどちらに該当するかを判断してください。
+ユーザーの'Then'ステップの意図を分析し、以下の検証タイプのいずれかを選択してください。
 
 1.  **テキスト内容の検証 (assertionType: "text")**:
     - ページ上のテキスト、URL、タイトルなどが特定の値を含んでいるか、または等しいかを確認する場合。
     - この場合、'extractInstruction'と'assertion' (operator: 'toContain', 'notToContain', 'toEqual') を使用します。
 
-2.  **要素の存在検証 (assertionType: "element")**:
-    - 特定のボタン、リンク、見出しなどがページ上に表示されているか（または表示されていないか）を確認する場合。
-    - この場合、'observeInstruction'と'assertion' (operator: 'toExist', 'notToExist') を使用します。
+2.  **要素の状態検証 (assertionType: "element_state")**:
+    - 要素の存在、可視性、有効無効、チェック状態、入力値などを検証する場合。
+    - この場合、'observeInstruction'と'assertion' (check: "exists", "not_exists", "visible", "hidden", "enabled", "disabled", "checked", "unchecked", "value_equals") を使用します。
 
 # ルール
 - ユーザーの指示に最も適した'assertionType'を1つ選択してください。
-- 'assertionType'が"text"の場合、'observeInstruction'は不要です。
-- 'assertionType'が"element"の場合、'extractInstruction'は不要です。
-- 'expected'は、テキスト検証の場合は期待値を、存在検証の場合は要素の説明を簡潔に記述してください。
+- 'expected'や'expectedValue'は、検証に必要な期待値を記述してください。
 
 # 例
 ## テキスト内容の検証
@@ -79,15 +112,26 @@ export function getVerifierPrompt(thenStep: string): string {
   }
 }
 
-## 要素の存在検証
+## 要素の状態検証 (存在)
 入力: 'Githubへのリンクが存在することを確認'
 出力 (JSON形式):
 {
-  "assertionType": "element",
+  "assertionType": "element_state",
   "observeInstruction": "Find the link to Github",
   "assertion": {
-    "expected": "Githubへのリンク",
-    "operator": "toExist"
+    "check": "exists"
+  }
+}
+
+## 要素の状態検証 (入力値)
+入力: '名前フィールドの値が "Taro" であること'
+出力 (JSON形式):
+{
+  "assertionType": "element_state",
+  "observeInstruction": "Find the name input field",
+  "assertion": {
+    "check": "value_equals",
+    "expectedValue": "Taro"
   }
 }
 

@@ -5,8 +5,8 @@ import { LanguageModel, generateObject } from "ai";
 import {
   getClassifierPrompt,
   instructionClassificationSchema,
-} from "../prompts/classifier.js";
-import { StepIntent } from "../types/recorder.js";
+} from "@/prompts/classifier";
+import { StepIntent } from "@/types/recorder";
 
 export class InstructionClassifierAgent {
   private llm: LanguageModel;

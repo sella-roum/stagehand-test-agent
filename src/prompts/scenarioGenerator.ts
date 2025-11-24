@@ -1,7 +1,7 @@
 /**
  * @file シナリオ生成エージェントが使用するプロンプトを定義します。
  */
-import { RecordedStep } from "../types/recorder.js";
+import { RecordedStep } from "@/types/recorder";
 
 export function getScenarioGeneratorPrompt(steps: RecordedStep[]): string {
   const formattedSteps = steps
