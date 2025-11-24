@@ -6,7 +6,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { Stagehand } from "@browserbasehq/stagehand";
-import { createStagehandConfig } from "../stagehand.config";
+import { createStagehandConfig } from "../stagehand.config"; // エイリアス対応のついでに相対パスのまま.js削除
 import { ExecutionContext } from "@/core/ExecutionContext";
 import { TestOrchestrator } from "@/core/TestOrchestrator";
 import { CommandLineInterface } from "@/ui/cli";
@@ -63,6 +63,7 @@ test.describe("Stagehand Test Agent E2E", () => {
     cli = {
       log: () => {},
       logStepStart: () => {},
+      logStepIntent: () => {}, // 【追加】レビュー指摘対応：実行時エラー回避のため追加
       logStepResult: () => {},
       logReport: () => {},
       ask: async () => "",
